@@ -1,0 +1,16 @@
+[Unit]
+Description=Celestial API Server
+After=network.target
+
+[Service]
+Type=simple
+User=celestial
+WorkingDirectory=/opt/celestial
+Environment=CELESTIAL_API_HOST=127.0.0.1
+Environment=CELESTIAL_API_PORT=8765
+ExecStart=/opt/celestial/.venv/bin/uvicorn core.api_server:app --host ${CELESTIAL_API_HOST} --port ${CELESTIAL_API_PORT}
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

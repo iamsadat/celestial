@@ -67,6 +67,10 @@ def add_padding_to_request(headers: dict, body: bytes = b"") -> tuple:
     return headers, body
 
 def should_block_due_to_killswitch():
+    # ponytail: strict mode trades convenience for fail-closed-always -- blocks even before any
+    # tunnel is configured/enabled. Default off so existing deployments keep current behavior.
+    if _config.get("strict_killswitch"):
+        return not is_tunnel_healthy()
     if not _config.get("enabled") or not _config.get("kill_switch"):
         return False
     return not is_tunnel_healthy()

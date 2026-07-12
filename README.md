@@ -19,8 +19,8 @@ A hardened, privacy-centric browser platform built from the ground up so that ze
 ## Quick Start
 
 ```bash
-# 1. Start the live API
-uvicorn core.api_server:app --port 8765
+# 1. Start the live API (reads CELESTIAL_API_HOST / CELESTIAL_API_PORT, default 127.0.0.1:8765)
+uvicorn core.api_server:app --host 127.0.0.1 --port 8765 --reload
 
 # 2. Start the privacy proxy
 python core/custom_proxy.py
@@ -32,6 +32,22 @@ python core/browser_launcher.py https://github.com
 open desktop/celestial-dashboard.html
 # or
 python -m http.server 8081 --directory desktop
+```
+
+> The dashboard loads Tailwind via the CDN JIT compiler (`cdn.tailwindcss.com`) for
+> convenience in dev. For production, prebuild a static Tailwind stylesheet instead
+> of shipping the runtime compiler.
+
+## Deploy
+
+```bash
+# Docker (production, no --reload)
+docker build -t celestial .
+docker run -p 8765:8765 -e CELESTIAL_API_HOST=0.0.0.0 celestial
+
+# systemd
+sudo cp deploy/celestial.service /etc/systemd/system/
+sudo systemctl enable --now celestial
 ```
 
 ## Project Structure

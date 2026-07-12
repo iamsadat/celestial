@@ -132,3 +132,69 @@ def test_forward_blocked_by_killswitch_no_connect_attempted(monkeypatch):
     resp = handler.wfile.getvalue()
     assert b"503" in resp
     assert "NETWORK NOT SECURE".encode() in resp
+
+
+def test_forward_socks_active_skips_local_dns(monkeypatch):
+    # DNS-leak invariant: when SOCKS does remote resolution (rdns=True), resolve_host()
+    # must never run -- a local DoH lookup here would leak the hostname around the tunnel.
+    monkeypatch.setattr(cp, "_allowed_hosts", {"example.com"})
+    monkeypatch.setattr(cp, "_current_top_level_host", None)
+    monkeypatch.setattr(cp, "should_block_due_to_killswitch", lambda: False)
+    monkeypatch.setattr(cp, "is_socks_upstream_active", lambda: True)
+    monkeypatch.setattr(cp, "resolve_host",
+                         lambda host: (_ for _ in ()).throw(AssertionError("DoH must be skipped under SOCKS")))
+    monkeypatch.setattr(cp, "add_padding_to_request", lambda h, b=b"": (h, b))
+
+    captured = {}
+
+    class FakeResponse:
+        status = 200
+        reason = "OK"
+        def getheaders(self): return []
+        def read(self): return b"ok"
+
+    class FakeConn:
+        def __init__(self, host, port=None, **kw):
+            captured["connect_host"] = host
+        def request(self, *a, **kw): pass
+        def getresponse(self): return FakeResponse()
+        def close(self): pass
+
+    monkeypatch.setattr(cp.http.client, "HTTPConnection", FakeConn)
+
+    handler = _make_handler("GET", "http://example.com/", {"Host": "example.com"})
+    handler._forward()
+
+    assert captured["connect_host"] == "example.com"  # connects by hostname, not a resolved IP
+    assert b"200" in handler.wfile.getvalue()
+
+
+def test_forward_head_request_writes_no_body(monkeypatch):
+    monkeypatch.setattr(cp, "_allowed_hosts", {"example.com"})
+    monkeypatch.setattr(cp, "_current_top_level_host", None)
+    monkeypatch.setattr(cp, "should_block_due_to_killswitch", lambda: False)
+    monkeypatch.setattr(cp, "is_socks_upstream_active", lambda: False)
+    monkeypatch.setattr(cp, "resolve_host", lambda host: "93.184.216.34")
+    monkeypatch.setattr(cp, "add_padding_to_request", lambda h, b=b"": (h, b))
+
+    class FakeResponse:
+        status = 200
+        reason = "OK"
+        def getheaders(self): return []
+        def read(self): return b"hidden-body"
+
+    class FakeConn:
+        def __init__(self, *a, **kw): pass
+        def request(self, *a, **kw): pass
+        def getresponse(self): return FakeResponse()
+        def close(self): pass
+
+    monkeypatch.setattr(cp.http.client, "HTTPConnection", FakeConn)
+
+    handler = _make_handler("HEAD", "http://example.com/", {"Host": "example.com"})
+    handler._forward()
+
+    resp = handler.wfile.getvalue()
+    assert b"200" in resp
+    assert b"Content-Length: 11" in resp  # len("hidden-body"), reported even though body is withheld
+    assert b"hidden-body" not in resp

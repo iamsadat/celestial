@@ -132,6 +132,17 @@ def sanitize_headers(headers):
             new_headers[key] = value
     return new_headers
 
+def _dns_connect(host, port, timeout=15):
+    """Connect a raw socket without leaking DNS to the OS resolver.
+    SOCKS upstream active -> connect by hostname (remote/rdns resolution through the tunnel).
+    Otherwise -> resolve via DoH and connect by IP. Fails closed (raises) if DoH resolution fails."""
+    if is_socks_upstream_active():
+        return socket.create_connection((host, port), timeout=timeout)
+    ip = resolve_host(host)
+    if not ip:
+        raise RuntimeError(f"DoH resolution failed for {host}")
+    return socket.create_connection((ip, port), timeout=timeout)
+
 class ProxyHandler(http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
@@ -151,15 +162,17 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
     def _kill_switch_block(self):
         msg = get_security_status_message()
         audit_log("KILL_SWITCH", f"Tunnel down - all traffic frozen | {self.command} {self.path}")
-        self.send_response(503, "Network Not Secure")
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.end_headers()
         html = f"""<!DOCTYPE html><html><body style="font-family:system-ui;background:#0a0a0a;color:#ff4444;padding:40px;text-align:center">
         <h1>⛔ NETWORK NOT SECURE</h1>
         <p><strong>{msg}</strong></p>
         <p>All network requests have been frozen by the Vault Kill-Switch.</p>
-        </body></html>"""
-        self.wfile.write(html.encode('utf-8'))
+        </body></html>""".encode('utf-8')
+        self.send_response(503, "Network Not Secure")
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(html)))  # HTTP/1.1 keep-alive client hangs without framing
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(html)
 
     def do_CONNECT(self):
         if should_block_due_to_killswitch():
@@ -171,7 +184,7 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
             return
         try:
             port = int(self.path.split(':')[1]) if ':' in self.path else 443
-            with socket.create_connection((host, port), timeout=10) as target_sock:
+            with _dns_connect(host, port, timeout=10) as target_sock:
                 self.send_response(200, "Connection Established")
                 self.end_headers()
                 # Simple bidirectional tunnel
@@ -221,22 +234,21 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
         headers['Host'] = sni_host
 
         try:
-            if is_socks_upstream_active():
-                # ponytail: SOCKS upstream does remote DNS (rdns=True) through the tunnel;
-                # connect by hostname here, resolving locally would leak DNS around the tunnel.
-                connect_host = sni_host
-            else:
-                connect_host = resolve_host(sni_host)
-                if not connect_host:
-                    raise RuntimeError(f"DoH resolution failed for {sni_host}")
-
             if scheme == 'https':
-                raw = socket.create_connection((connect_host, port), timeout=15)
+                raw = _dns_connect(sni_host, port, timeout=15)
                 ctx = ssl.create_default_context()
                 sock = ctx.wrap_socket(raw, server_hostname=sni_host)  # SNI/cert must use the real hostname, not the resolved IP
                 conn = http.client.HTTPSConnection(sni_host, port, timeout=15)
                 conn.sock = sock
             else:
+                # ponytail: HTTPConnection does its own connect() internally, so we only need the
+                # target string here (not a pre-opened socket) -- same DNS-safe branch as _dns_connect.
+                if is_socks_upstream_active():
+                    connect_host = sni_host
+                else:
+                    connect_host = resolve_host(sni_host)
+                    if not connect_host:
+                        raise RuntimeError(f"DoH resolution failed for {sni_host}")
                 conn = http.client.HTTPConnection(connect_host, port, timeout=15)
 
             conn.request(self.command, path or '/', body=body or None, headers=headers)

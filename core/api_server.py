@@ -11,6 +11,7 @@ from fastapi import FastAPI, Header, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import json
+import os
 import time
 import secrets
 from pathlib import Path
@@ -39,6 +40,29 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
+
+# Matches the meta CSP tag in desktop/celestial-dashboard.html - keep them in sync.
+# unsafe-inline is needed for the dashboard's inline <script>/onclick handlers and
+# the Tailwind CDN's runtime-injected <style>; connect-src covers the API itself.
+_CSP = (
+    "default-src 'self'; "
+    "script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com; "
+    "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; "
+    "font-src 'self' https://cdnjs.cloudflare.com; "
+    "img-src 'self' data:; "
+    "connect-src 'self' http://127.0.0.1:8765 http://localhost:8765; "
+    "manifest-src 'self'"
+)
+
+@app.middleware("http")
+async def security_headers(request, call_next):
+    response = await call_next(request)
+    response.headers["Content-Security-Policy"] = _CSP
+    response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
 
 # CORS is a browser-only control (doesn't stop curl or another local process),
 # so /config - which can disable the kill-switch or empty the whitelist - also
@@ -95,4 +119,6 @@ async def health():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8765)
+    host = os.environ.get("CELESTIAL_API_HOST", "127.0.0.1")
+    port = int(os.environ.get("CELESTIAL_API_PORT", "8765"))
+    uvicorn.run(app, host=host, port=port)

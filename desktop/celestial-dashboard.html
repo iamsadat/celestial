@@ -8,6 +8,8 @@
     <meta name="apple-mobile-web-app-title" content="Celestial">
     <link rel="manifest" href="manifest.json">
     <title>Celestial • Control Center</title>
+    <!-- Keep in sync with the _CSP constant in core/api_server.py -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; font-src 'self' https://cdnjs.cloudflare.com; img-src 'self' data:; connect-src 'self' http://127.0.0.1:8765 http://localhost:8765; manifest-src 'self'">
     <link rel="preconnect" href="https://cdn.tailwindcss.com">
     <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
     <script src="https://cdn.tailwindcss.com"></script>
@@ -86,10 +88,24 @@
         </div>
     </div>
 
+    <!-- Settings modal -->
+    <div id="settings-overlay" class="hidden fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onclick="if (event.target === this) closeSettings()">
+        <div class="glass rounded-3xl p-6 w-full max-w-md max-h-[85vh] overflow-auto">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-xl font-bold">Settings</h2>
+                <button onclick="closeSettings()" aria-label="Close" class="p-2 rounded-xl hover:bg-white/10"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div id="settings-body" class="text-sm text-slate-400">Loading…</div>
+        </div>
+    </div>
+
     <script>
+        // Default matches CELESTIAL_API_HOST/CELESTIAL_API_PORT defaults in core/api_server.py.
+        const API_BASE = 'http://127.0.0.1:8765';
+
         async function updateLiveStatus() {
             try {
-                const res = await fetch('http://127.0.0.1:8765/status');
+                const res = await fetch(`${API_BASE}/status`);
                 const data = await res.json();
                 const el = document.getElementById('tunnel-status-text');
                 if (el) {
@@ -123,8 +139,92 @@
             log.prepend(div);
         }
 
-        function showSettings() {
-            alert('Settings modal - full version available in the complete dashboard from conversation history.');
+        // Token lives at desktop/config/.api_token; dashboard is served from
+        // desktop/ by the same static server, so this is a same-origin fetch.
+        let _apiToken = null;
+        async function getApiToken() {
+            if (_apiToken) return _apiToken;
+            const res = await fetch('./config/.api_token');
+            if (!res.ok) throw new Error(`token unavailable (${res.status})`);
+            _apiToken = (await res.text()).trim();
+            return _apiToken;
+        }
+
+        let _currentConfig = null;
+
+        function renderSettingsBody(html) {
+            document.getElementById('settings-body').innerHTML = html;
+        }
+
+        function renderSettingsError(msg) {
+            renderSettingsBody(`<p class="text-red-400 mb-4">${msg}</p><button onclick="showSettings()" class="border border-white/20 px-4 py-2 rounded-xl hover:bg-white/5">Retry</button>`);
+        }
+
+        function renderSettingsForm(config) {
+            const whitelist = (config.whitelist || []).join('\n');
+            const killSwitch = !!(config.network_obfuscation && config.network_obfuscation.kill_switch);
+            renderSettingsBody(`
+                <label class="block text-xs uppercase tracking-wider text-slate-400 mb-2">Whitelist (one host per line)</label>
+                <textarea id="settings-whitelist" rows="6" class="w-full bg-black/30 border border-white/10 rounded-xl p-3 mb-4 font-mono text-xs text-[#e0e7ff]">${whitelist}</textarea>
+                <label class="flex items-center gap-3 mb-6 cursor-pointer">
+                    <input id="settings-killswitch" type="checkbox" ${killSwitch ? 'checked' : ''} class="w-4 h-4">
+                    <span>Kill-switch armed</span>
+                </label>
+                <div id="settings-status" class="text-xs text-red-400 mb-3"></div>
+                <div class="flex gap-3">
+                    <button onclick="saveSettings()" class="bg-[#00d4ff] text-black px-6 py-2.5 rounded-xl font-semibold hover:opacity-90 transition">Save</button>
+                    <button onclick="closeSettings()" class="border border-white/20 px-6 py-2.5 rounded-xl hover:bg-white/5">Cancel</button>
+                </div>
+            `);
+        }
+
+        async function showSettings() {
+            document.getElementById('settings-overlay').classList.remove('hidden');
+            renderSettingsBody('Loading…');
+            try {
+                const token = await getApiToken();
+                const res = await fetch(`${API_BASE}/config`, { headers: { 'X-Celestial-Token': token } });
+                if (!res.ok) throw new Error(`config fetch failed (${res.status})`);
+                const data = await res.json();
+                _currentConfig = data.error ? {} : data;
+                renderSettingsForm(_currentConfig);
+            } catch (e) {
+                renderSettingsError(e.message);
+            }
+        }
+
+        function closeSettings() {
+            document.getElementById('settings-overlay').classList.add('hidden');
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeSettings();
+        });
+
+        async function saveSettings() {
+            const whitelist = document.getElementById('settings-whitelist').value
+                .split('\n').map(s => s.trim()).filter(Boolean);
+            const killSwitch = document.getElementById('settings-killswitch').checked;
+            const updated = {
+                ..._currentConfig,
+                whitelist,
+                network_obfuscation: { ...(_currentConfig.network_obfuscation || {}), enabled: killSwitch, kill_switch: killSwitch },
+            };
+            const statusEl = document.getElementById('settings-status');
+            try {
+                const token = await getApiToken();
+                const res = await fetch(`${API_BASE}/config`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Celestial-Token': token },
+                    body: JSON.stringify(updated),
+                });
+                if (!res.ok) throw new Error(`save failed (${res.status})`);
+                _currentConfig = updated;
+                addAudit('allow', 'Settings updated');
+                closeSettings();
+            } catch (e) {
+                statusEl.textContent = e.message;
+            }
         }
 
         // Init — pause polling while tab is hidden to cut network/battery cost

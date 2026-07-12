@@ -22,7 +22,12 @@ CHROMIUM_PRIVACY_FLAGS = [
     "--enable-strict-site-isolation", "--site-per-process",
     "--no-first-run", "--no-default-browser-check",
     "--disable-gpu", "--disk-cache-size=1", "--media-cache-size=1",
-    "--headless=new", "--no-sandbox", "--disable-dev-shm-usage",
+    "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
+    "--webrtc-ip-handling-policy=disable_non_proxied_udp",
+    "--disable-quic", "--dns-prefetch-disable",
+    "--proxy-bypass-list=<-loopback>",
+    "--host-resolver-rules=MAP * ~NOTFOUND , EXCLUDE 127.0.0.1",
+    "--no-sandbox", "--disable-dev-shm-usage",
 ]
 
 def get_chrome_path():
@@ -42,6 +47,8 @@ def launch_browser(target_url="https://example.com", proxy_port=8080):
     set_current_top_level(hostname)
 
     cmd = [chrome] + CHROMIUM_PRIVACY_FLAGS[:]
+    if os.environ.get("CELESTIAL_HEADLESS") == "1":
+        cmd.append("--headless=new")
     cmd.append(f"--proxy-server=http://127.0.0.1:{proxy_port}")
     cmd.append(f"--user-data-dir=/tmp/celestial_profile_{int(time.time())}")
     cmd.append(f"--app={target_url}")
