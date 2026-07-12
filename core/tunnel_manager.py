@@ -16,6 +16,7 @@ _tunnel_lock = threading.Lock()
 _config = {}
 _health_thread = None
 _stop_health = False
+_socks_upstream_active = False
 
 def load_tunnel_config(config_path="desktop/config/vault_config.json"):
     global _config
@@ -76,7 +77,11 @@ def get_security_status_message():
     else:
         return "⛔ NETWORK NOT SECURE — VPN/Kill-Switch triggered. All requests frozen."
 
+def is_socks_upstream_active():
+    return _socks_upstream_active
+
 def setup_socks5_upstream():
+    global _socks_upstream_active
     try:
         import socks
         if not _config.get("enabled") or _config.get("mode") != "socks5":
@@ -87,6 +92,7 @@ def setup_socks5_upstream():
         password = _config.get("password") or None
         socks.set_default_proxy(socks.SOCKS5, host, port, username=username, password=password, rdns=True)
         socket.socket = socks.socksocket
+        _socks_upstream_active = True
         print(f"[TUNNEL] ✓ Real SOCKS5 chaining ACTIVE → {host}:{port}")
         return True
     except Exception as e:

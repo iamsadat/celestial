@@ -6,8 +6,10 @@ tracker blocking, kill-switch, packet padding, and audit logging.
 """
 
 import http.server
+import http.client
 import socketserver
 import socket
+import ssl
 import urllib.parse
 import json
 import threading
@@ -17,7 +19,8 @@ from datetime import datetime, timezone
 try:
     from tunnel_manager import (
         load_tunnel_config, is_tunnel_healthy, should_block_due_to_killswitch,
-        get_security_status_message, add_padding_to_request, setup_upstream_if_needed
+        get_security_status_message, add_padding_to_request, setup_upstream_if_needed,
+        is_socks_upstream_active
     )
 except ImportError:
     def load_tunnel_config(p=None): pass
@@ -26,6 +29,17 @@ except ImportError:
     def get_security_status_message(): return "Secure"
     def add_padding_to_request(h, b=b""): return h, b
     def setup_upstream_if_needed(): return False
+    def is_socks_upstream_active(): return False
+
+try:
+    from doh_resolver import resolve_host
+except ImportError:
+    def resolve_host(hostname): return None
+
+# Hop-by-hop headers must never be forwarded (RFC 7230 6.1) plus proxy-specific ones.
+_HOP_BY_HOP = {'connection', 'proxy-connection', 'keep-alive', 'transfer-encoding',
+               'upgrade', 'te', 'trailer', 'proxy-authenticate', 'proxy-authorization',
+               'host', 'content-length'}
 
 _current_top_level_host = None
 _allowed_hosts = set()
@@ -191,16 +205,59 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
         if not is_request_allowed(host):
             self._block_request(f"Destination '{host}' not in whitelist/current origin")
             return
-        # Simplified forward for demo (full version has complete sanitization + padding)
+        parsed = urllib.parse.urlparse(clean_url(self.path))
+        scheme = parsed.scheme or 'http'
+        sni_host = parsed.hostname or host
+        port = parsed.port or (443 if scheme == 'https' else 80)
+        path = urllib.parse.urlunparse(('', '', parsed.path or '/', parsed.params, parsed.query, ''))
+
+        content_length = int(self.headers.get('Content-Length', 0) or 0)
+        body = self.rfile.read(content_length) if content_length else b""
+
+        headers = sanitize_headers(dict(self.headers))
+        headers = {k: v for k, v in headers.items() if k.lower() not in _HOP_BY_HOP}
+        headers, body = add_padding_to_request(headers, body)
+        headers['Content-Length'] = str(len(body))
+        headers['Host'] = sni_host
+
         try:
-            target_url = clean_url(self.path)
-            self.send_response(200)
-            self.send_header("Content-Type", "text/plain")
-            self.end_headers()
-            self.wfile.write(b"Celestial Proxy: Request allowed and sanitized. Full MITM + padding in production mode.")
-            audit_log("Network", f"Forwarded {self.command} to {host}", blocked=False)
+            if is_socks_upstream_active():
+                # ponytail: SOCKS upstream does remote DNS (rdns=True) through the tunnel;
+                # connect by hostname here, resolving locally would leak DNS around the tunnel.
+                connect_host = sni_host
+            else:
+                connect_host = resolve_host(sni_host)
+                if not connect_host:
+                    raise RuntimeError(f"DoH resolution failed for {sni_host}")
+
+            if scheme == 'https':
+                raw = socket.create_connection((connect_host, port), timeout=15)
+                ctx = ssl.create_default_context()
+                sock = ctx.wrap_socket(raw, server_hostname=sni_host)  # SNI/cert must use the real hostname, not the resolved IP
+                conn = http.client.HTTPSConnection(sni_host, port, timeout=15)
+                conn.sock = sock
+            else:
+                conn = http.client.HTTPConnection(connect_host, port, timeout=15)
+
+            conn.request(self.command, path or '/', body=body or None, headers=headers)
+            resp = conn.getresponse()
+            resp_body = resp.read()  # ponytail: buffered fully so a mid-stream error never leaves a partial write on the client
+            conn.close()
         except Exception as e:
-            self.send_error(502)
+            audit_log("Network", f"Forward failed to {host}: {e}")
+            self.send_error(502, "Celestial Proxy: upstream request failed")
+            return
+
+        self.send_response(resp.status, resp.reason)
+        for k, v in resp.getheaders():
+            if k.lower() in _HOP_BY_HOP:
+                continue
+            self.send_header(k, v)
+        self.send_header('Content-Length', str(len(resp_body)))
+        self.end_headers()
+        if self.command != 'HEAD':
+            self.wfile.write(resp_body)
+        audit_log("Network", f"Forwarded {self.command} to {host}", blocked=False)
 
     def log_message(self, format, *args):
         pass
