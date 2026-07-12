@@ -1,8 +1,8 @@
 #!/bin/bash
+set -e
 echo "🚀 Setting up Celestial..."
-mkdir -p core desktop mobile/capacitor docs
-echo "Project structure created."
-echo "Copy the full source files from the GitHub repo or previous conversation."
-echo "Then run:"
+pip install -r requirements.txt
+echo "Dependencies installed. Then run:"
 echo "  uvicorn core.api_server:app --port 8765"
-echo "  python core/celestial_browser.py"
+echo "  python core/custom_proxy.py"
+echo "  python core/browser_launcher.py <url>"

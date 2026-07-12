@@ -11,9 +11,7 @@ import socket
 import urllib.parse
 import json
 import threading
-import time
 from datetime import datetime, timezone
-import os
 
 # Import tunnel features
 try:
@@ -166,7 +164,7 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
                 def tunnel(src, dst):
                     try:
                         while True:
-                            data = src.recv(4096)
+                            data = src.recv(65536)  # ponytail: was 4096, 16x fewer syscalls on bulk transfer
                             if not data: break
                             dst.sendall(data)
                     except: pass

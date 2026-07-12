@@ -8,10 +8,7 @@ import time
 import socket
 import random
 import string
-import urllib.request
-from datetime import datetime, timezone
 import json
-from pathlib import Path
 
 _tunnel_healthy = True
 _tunnel_last_ok = time.time()

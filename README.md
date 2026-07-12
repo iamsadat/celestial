@@ -23,9 +23,12 @@ A hardened, privacy-centric browser platform built from the ground up so that ze
 uvicorn core.api_server:app --port 8765
 
 # 2. Start the privacy proxy
-python core/celestial_browser.py https://github.com 8080
+python core/custom_proxy.py
 
-# 3. Open the dashboard
+# 3. Launch the hardened browser through it
+python core/browser_launcher.py https://github.com
+
+# 4. Open the dashboard
 open desktop/celestial-dashboard.html
 # or
 python -m http.server 8081 --directory desktop

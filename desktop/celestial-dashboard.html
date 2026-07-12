@@ -8,8 +8,12 @@
     <meta name="apple-mobile-web-app-title" content="Celestial">
     <link rel="manifest" href="manifest.json">
     <title>Celestial • Control Center</title>
+    <link rel="preconnect" href="https://cdn.tailwindcss.com">
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <!-- non-blocking load: icon font isn't needed for first paint -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" media="print" onload="this.media='all'">
+    <noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"></noscript>
     <style>
         body { font-family: system-ui, sans-serif; }
         .glass { background: rgba(18, 26, 46, 0.85); backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.08); }
@@ -25,11 +29,11 @@
                 <span class="text-2xl font-bold tracking-tight">Celestial</span>
                 <span class="px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold">SECURE</span>
             </div>
-            <button onclick="showSettings()" class="p-2 rounded-xl hover:bg-white/10"><i class="fa-solid fa-cog"></i></button>
+            <button onclick="showSettings()" aria-label="Settings" class="p-3.5 rounded-xl hover:bg-white/10"><i class="fa-solid fa-cog"></i></button>
         </div>
     </nav>
 
-    <div class="max-w-screen-2xl mx-auto px-6 py-8">
+    <main class="max-w-screen-2xl mx-auto px-6 py-8">
         <h1 class="text-4xl font-bold mb-2">Secure Tunnel</h1>
         <p class="text-slate-400 mb-8">All traffic obfuscated • Zero leaks • Kill-switch armed</p>
 
@@ -63,9 +67,9 @@
 
         <div class="glass rounded-3xl p-6">
             <div class="text-xs uppercase tracking-wider text-slate-400 mb-4">LIVE AUDIT LOG</div>
-            <div id="audit-log" class="space-y-2 text-sm font-mono max-h-64 overflow-auto"></div>
+            <div id="audit-log" role="log" aria-live="polite" aria-label="Live audit log" class="space-y-2 text-sm font-mono max-h-64 overflow-auto"></div>
         </div>
-    </div>
+    </main>
 
     <!-- Mobile Bottom Nav -->
     <div class="md:hidden fixed bottom-0 left-0 right-0 bg-[#0f1629] border-t border-white/10 z-50">
@@ -95,7 +99,11 @@
                 const blocked = document.getElementById('blocked-count');
                 if (blocked) blocked.textContent = data.blocked_today || 184;
             } catch (e) {
-                console.log('API offline - using demo mode');
+                const el = document.getElementById('tunnel-status-text');
+                if (el) {
+                    el.textContent = 'OFFLINE';
+                    el.className = 'text-3xl font-semibold text-amber-400';
+                }
             }
         }
 
@@ -119,9 +127,21 @@
             alert('Settings modal - full version available in the complete dashboard from conversation history.');
         }
 
-        // Init
-        updateLiveStatus();
-        setInterval(updateLiveStatus, 5000);
+        // Init — pause polling while tab is hidden to cut network/battery cost
+        let pollTimer = null;
+        function startPolling() {
+            if (pollTimer) return;
+            updateLiveStatus();
+            pollTimer = setInterval(updateLiveStatus, 5000);
+        }
+        function stopPolling() {
+            clearInterval(pollTimer);
+            pollTimer = null;
+        }
+        document.addEventListener('visibilitychange', () => {
+            document.hidden ? stopPolling() : startPolling();
+        });
+        startPolling();
         addAudit('allow', 'Celestial Control Center initialized');
 
         if ('serviceWorker' in navigator) {

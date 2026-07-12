@@ -3,6 +3,7 @@
 import json
 import urllib.request
 import urllib.parse
+from functools import lru_cache
 from typing import List, Optional
 
 DOH_PROVIDERS = {
@@ -34,6 +35,19 @@ class DoHResolver:
 
 _default_resolver = DoHResolver("cloudflare")
 
+@lru_cache(maxsize=512)
 def resolve_host(hostname: str) -> Optional[str]:
+    # ponytail: no TTL, cache lives for process lifetime; add TTL eviction if hosts start changing IPs mid-run
     ips = _default_resolver.resolve(hostname)
     return ips[0] if ips else None
+
+if __name__ == "__main__":
+    calls = []
+    real_resolve = DoHResolver.resolve
+    DoHResolver.resolve = lambda self, hostname, record_type="A": (calls.append(hostname), ["1.2.3.4"])[1]
+    resolve_host.cache_clear()
+    assert resolve_host("example.com") == "1.2.3.4"
+    assert resolve_host("example.com") == "1.2.3.4"
+    assert len(calls) == 1, f"expected 1 network call, got {len(calls)}"
+    DoHResolver.resolve = real_resolve
+    print("OK: resolve_host caches repeated lookups")
