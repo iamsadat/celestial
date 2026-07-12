@@ -16,3 +16,12 @@ audit.log
 /tmp/vault_*
 .vscode/
 .idea/
+
+# Runtime config with SOCKS5/tunnel credentials, written by api_server.py POST /config
+desktop/config/vault_config.json
+
+# Capacitor mobile build output
+mobile/capacitor/node_modules/
+mobile/capacitor/www/
+mobile/capacitor/ios/
+mobile/capacitor/android/
