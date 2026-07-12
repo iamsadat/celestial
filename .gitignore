@@ -1,0 +1,18 @@
+# Celestial
+__pycache__/
+*.py[cod]
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.venv/
+venv/
+.env
+.DS_Store
+Thumbs.db
+*.log
+audit.log
+/tmp/vault_*
+.vscode/
+.idea/
