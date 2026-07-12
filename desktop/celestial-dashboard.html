@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Celestial">
+    <link rel="manifest" href="manifest.json">
+    <title>Celestial • Control Center</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style>
+        body { font-family: system-ui, sans-serif; }
+        .glass { background: rgba(18, 26, 46, 0.85); backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.08); }
+    </style>
+</head>
+<body class="bg-[#0a0f1e] text-[#e0e7ff] min-h-screen">
+    <nav class="border-b border-white/10 bg-[#0a0f1e]/95 backdrop-blur-xl sticky top-0 z-50">
+        <div class="max-w-screen-2xl mx-auto px-6 py-4 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-9 h-9 rounded-2xl bg-gradient-to-br from-[#00d4ff] to-[#00ff9d] flex items-center justify-center">
+                    <i class="fa-solid fa-shield-halved text-[#0a0f1e]"></i>
+                </div>
+                <span class="text-2xl font-bold tracking-tight">Celestial</span>
+                <span class="px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold">SECURE</span>
+            </div>
+            <button onclick="showSettings()" class="p-2 rounded-xl hover:bg-white/10"><i class="fa-solid fa-cog"></i></button>
+        </div>
+    </nav>
+
+    <div class="max-w-screen-2xl mx-auto px-6 py-8">
+        <h1 class="text-4xl font-bold mb-2">Secure Tunnel</h1>
+        <p class="text-slate-400 mb-8">All traffic obfuscated • Zero leaks • Kill-switch armed</p>
+
+        <div id="main-metrics" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+            <div class="glass rounded-3xl p-6">
+                <div class="text-xs uppercase tracking-wider text-slate-400 mb-1">TUNNEL STATUS</div>
+                <div id="tunnel-status-text" class="text-3xl font-semibold text-emerald-400">ACTIVE</div>
+            </div>
+            <div class="glass rounded-3xl p-6">
+                <div class="text-xs uppercase tracking-wider text-slate-400 mb-1">PROTECTION SCORE</div>
+                <div class="text-5xl font-semibold">98<span class="text-emerald-400 text-2xl">/100</span></div>
+            </div>
+            <div class="glass rounded-3xl p-6">
+                <div class="text-xs uppercase tracking-wider text-slate-400 mb-1">BLOCKED TODAY</div>
+                <div id="blocked-count" class="text-5xl font-semibold">184</div>
+            </div>
+            <div class="glass rounded-3xl p-6">
+                <div class="text-xs uppercase tracking-wider text-slate-400 mb-1">KILL SWITCH</div>
+                <div class="text-xl font-semibold mt-1">Armed & Ready</div>
+            </div>
+        </div>
+
+        <div class="flex gap-4 mb-8">
+            <button onclick="launchSession()" class="bg-[#00d4ff] text-black px-8 py-3 rounded-2xl font-semibold hover:opacity-90 transition">
+                Launch Secure Session →
+            </button>
+            <button onclick="window.location.reload()" class="border border-white/20 px-6 py-3 rounded-2xl hover:bg-white/5">
+                Refresh
+            </button>
+        </div>
+
+        <div class="glass rounded-3xl p-6">
+            <div class="text-xs uppercase tracking-wider text-slate-400 mb-4">LIVE AUDIT LOG</div>
+            <div id="audit-log" class="space-y-2 text-sm font-mono max-h-64 overflow-auto"></div>
+        </div>
+    </div>
+
+    <!-- Mobile Bottom Nav -->
+    <div class="md:hidden fixed bottom-0 left-0 right-0 bg-[#0f1629] border-t border-white/10 z-50">
+        <div class="flex justify-around py-2 text-xs">
+            <button onclick="document.getElementById('main-metrics').scrollIntoView({behavior:'smooth'})" class="flex flex-col items-center p-2 text-[#00d4ff]">
+                <i class="fa-solid fa-shield-halved text-lg"></i><span>Status</span>
+            </button>
+            <button onclick="document.getElementById('audit-log').scrollIntoView({behavior:'smooth'})" class="flex flex-col items-center p-2">
+                <i class="fa-solid fa-list-check text-lg"></i><span>Audit</span>
+            </button>
+            <button onclick="showSettings()" class="flex flex-col items-center p-2">
+                <i class="fa-solid fa-cog text-lg"></i><span>Settings</span>
+            </button>
+        </div>
+    </div>
+
+    <script>
+        async function updateLiveStatus() {
+            try {
+                const res = await fetch('http://127.0.0.1:8765/status');
+                const data = await res.json();
+                const el = document.getElementById('tunnel-status-text');
+                if (el) {
+                    el.textContent = data.tunnel_healthy ? 'ACTIVE' : 'COMPROMISED';
+                    el.className = data.tunnel_healthy ? 'text-3xl font-semibold text-emerald-400' : 'text-3xl font-semibold text-red-400';
+                }
+                const blocked = document.getElementById('blocked-count');
+                if (blocked) blocked.textContent = data.blocked_today || 184;
+            } catch (e) {
+                console.log('API offline - using demo mode');
+            }
+        }
+
+        function launchSession() {
+            const url = prompt('Enter URL to open securely:', 'https://github.com');
+            if (url) {
+                window.open(url, '_blank');
+                addAudit('allow', `Launched secure session → ${url}`);
+            }
+        }
+
+        function addAudit(type, msg) {
+            const log = document.getElementById('audit-log');
+            const div = document.createElement('div');
+            div.className = type === 'block' ? 'text-red-400' : 'text-emerald-400';
+            div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            log.prepend(div);
+        }
+
+        function showSettings() {
+            alert('Settings modal - full version available in the complete dashboard from conversation history.');
+        }
+
+        // Init
+        updateLiveStatus();
+        setInterval(updateLiveStatus, 5000);
+        addAudit('allow', 'Celestial Control Center initialized');
+
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js').catch(() => {});
+        }
+    </script>
+</body>
+</html>

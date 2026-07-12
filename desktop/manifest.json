@@ -1,0 +1,10 @@
+{
+  "name": "Celestial Privacy Browser",
+  "short_name": "Celestial",
+  "description": "Zero-leakage privacy browser control center",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0f1e",
+  "theme_color": "#00d4ff",
+  "orientation": "portrait-primary"
+}
