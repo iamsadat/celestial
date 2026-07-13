@@ -7,7 +7,12 @@ const sidecar = require("./sidecar");
 const storage = require("./storage");
 const { loadExtensions } = require("./extensions");
 
-const CONTROL_TOKEN_PATH = path.join(__dirname, "..", "desktop", "config", ".api_token");
+// Same packaged-vs-dev root split as sidecar.js's REPO_ROOT: core/api_server.py
+// writes this token relative to its own file location, which extraResources
+// places at process.resourcesPath/core in a packaged build.
+const CONTROL_TOKEN_PATH = app.isPackaged
+  ? path.join(process.resourcesPath, "desktop", "config", ".api_token")
+  : path.join(__dirname, "..", "desktop", "config", ".api_token");
 
 // Tells the proxy sidecar which host the user is navigating to, so its
 // whitelist gate (core/custom_proxy.py's is_request_allowed) allows it.

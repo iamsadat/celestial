@@ -2,12 +2,20 @@
 // Spawns and health-checks the Python sidecar (API :8765 + privacy proxy :8080).
 // Reuses core/api_server.py and core/custom_proxy.py's existing __main__ entrypoints as-is.
 
+const { app } = require("electron");
 const { spawn } = require("child_process");
 const net = require("net");
 const http = require("http");
 const path = require("path");
 
-const REPO_ROOT = path.resolve(__dirname, "..");
+// Packaged builds ship core/ + requirements.txt via electron-builder's
+// extraResources (see app/package.json "build.extraResources"), copied to
+// process.resourcesPath instead of living next to app.asar. Dev/unpackaged
+// runs keep using the real repo root.
+// ponytail: no bundled python runtime -- the installer expects a system
+// python3 with `pip install -r requirements.txt` already run. Bundling a
+// full interpreter (PyInstaller etc.) is future work if that's ever a problem.
+const REPO_ROOT = app.isPackaged ? process.resourcesPath : path.resolve(__dirname, "..");
 const PYTHON = process.env.CELESTIAL_PYTHON || "python3";
 const API_PORT = 8765;
 const PROXY_PORT = 8080;

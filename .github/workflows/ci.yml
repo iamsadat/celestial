@@ -15,3 +15,21 @@ jobs:
       - run: pip install -r requirements.txt
       - run: python -m py_compile core/*.py
       - run: python -m pytest tests/ -q
+
+  electron:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: app/package-lock.json
+      - run: npm ci
+        working-directory: app
+      - run: node --check main.js && node --check sidecar.js && node --check preload.js
+        working-directory: app
+      - run: node verify_killswitch.js && node verify_tab_lifecycle.js
+        working-directory: app
+      - run: xvfb-run -a npx electron-builder --linux --dir
+        working-directory: app
