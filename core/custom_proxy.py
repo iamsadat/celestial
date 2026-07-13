@@ -12,8 +12,10 @@ import socket
 import ssl
 import urllib.parse
 import json
+import secrets
 import threading
 from datetime import datetime, timezone
+from pathlib import Path
 
 # Import tunnel features
 try:
@@ -46,6 +48,21 @@ _allowed_hosts = set()
 _config = {}
 _blocked_count = 0
 _lock = threading.Lock()
+
+# ponytail: set_current_top_level() only mutates *this process's* globals. That was
+# fine when a launcher imported custom_proxy in-process (core/browser_launcher.py's
+# old model), but the Electron shell runs this proxy as an independent sidecar
+# process, so it needs a real (token-gated) way to call in across the process
+# boundary. Shared secret reuses api_server.py's token file rather than minting a
+# second one.
+_CONTROL_TOKEN_PATH = Path(__file__).parent.parent / "desktop/config/.api_token"
+_CONTROL_PATH = "/__celestial/set-top-level"
+
+def _load_control_token():
+    try:
+        return _CONTROL_TOKEN_PATH.read_text().strip()
+    except Exception:
+        return None
 
 def load_config(config_path="desktop/config/vault_config.json"):
     global _config, _allowed_hosts
@@ -203,7 +220,33 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
             audit_log("Network", f"CONNECT failed to {host}: {e}")
             self.send_error(502)
 
+    def _handle_control(self):
+        """Local control channel for the Electron shell to register the
+        top-level host before each navigation. Only matches requests made
+        directly to the proxy in relative-path form (real forwarded HTTP
+        proxy requests always use absolute-URI form per RFC 7230 5.3.2, so
+        this can't collide with a real site's path). Token-gated because
+        loopback destinations bypass this proxy in the browser's own proxy
+        config, so a compromised tab could otherwise reach this port too."""
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path != _CONTROL_PATH:
+            return False
+        qs = urllib.parse.parse_qs(parsed.query)
+        token = (qs.get("token") or [""])[0]
+        host = (qs.get("host") or [""])[0]
+        expected = _load_control_token()
+        if not expected or not secrets.compare_digest(token, expected):
+            self.send_error(403, "Invalid or missing control token")
+            return True
+        if host:
+            set_current_top_level(host)
+        self.send_response(204)
+        self.end_headers()
+        return True
+
     def do_GET(self):
+        if self._handle_control():
+            return
         self._forward()
     def do_POST(self):
         self._forward()

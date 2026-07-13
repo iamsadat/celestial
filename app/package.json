@@ -1,0 +1,14 @@
+{
+  "name": "celestial-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Celestial privacy browser shell (Electron)",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "start:headless": "xvfb-run -a electron ."
+  },
+  "devDependencies": {
+    "electron": "^43.1.0"
+  }
+}

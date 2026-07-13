@@ -31,3 +31,8 @@ mobile/capacitor/android/
 
 # Ruflo/claude-flow local runtime
 .claude-flow/
+
+# Electron app deps + build
+app/node_modules/
+app/dist/
+app/out/

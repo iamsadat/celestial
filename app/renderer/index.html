@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Celestial</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="toolbar">
+    <button id="back-btn" title="Back">&larr;</button>
+    <button id="fwd-btn" title="Forward">&rarr;</button>
+    <button id="reload-btn" title="Reload">&#8635;</button>
+    <input id="address-bar" type="text" placeholder="Search or enter address" autocomplete="off">
+    <span id="status-pill" class="status-pill">...</span>
+  </div>
+  <div id="tabstrip">
+    <button id="new-tab-btn" title="New tab">+</button>
+  </div>
+  <div id="views"></div>
+  <script src="renderer.js"></script>
+</body>
+</html>
