@@ -6,20 +6,48 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div id="toolbar">
-    <button id="back-btn" title="Back">&larr;</button>
-    <button id="fwd-btn" title="Forward">&rarr;</button>
-    <button id="reload-btn" title="Reload">&#8635;</button>
-    <input id="address-bar" type="text" placeholder="Search or enter address" autocomplete="off">
-    <button id="bookmark-btn" title="Bookmarks">&#9733;</button>
-    <span id="status-pill" class="status-pill">...</span>
+  <div id="chrome">
+    <div id="topbar">
+      <div id="brand" title="Celestial">
+        <svg class="brand-mark" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+          <circle cx="3" cy="12.5" r="1.1"></circle>
+          <circle cx="8.2" cy="3.6" r="1.1"></circle>
+          <circle cx="13" cy="9.8" r="1.1"></circle>
+          <path d="M3 12.5L8.2 3.6L13 9.8" stroke="currentColor" stroke-width="0.75" fill="none"></path>
+        </svg>
+        <span>Celestial</span>
+      </div>
+      <div id="tabstrip">
+        <button id="new-tab-btn" title="New tab" aria-label="New tab">+</button>
+      </div>
+      <div id="topbar-right">
+        <button id="bookmark-btn" title="Bookmarks" aria-label="Bookmarks">
+          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M6 3h12v18l-6-4-6 4V3z"></path></svg>
+        </button>
+        <button id="menu-btn" title="Menu" aria-label="Menu">
+          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><circle cx="5" cy="12" r="1.7"></circle><circle cx="12" cy="12" r="1.7"></circle><circle cx="19" cy="12" r="1.7"></circle></svg>
+        </button>
+      </div>
+    </div>
+    <div id="navbar">
+      <button id="back-btn" title="Back" aria-label="Back">&larr;</button>
+      <button id="fwd-btn" title="Forward" aria-label="Forward">&rarr;</button>
+      <button id="reload-btn" title="Reload" aria-label="Reload">&#8635;</button>
+      <div id="address-wrap">
+        <div id="status-pill" class="status-pill" role="status" aria-live="polite" title="Connection status">
+          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+            <path class="shield-outline" d="M12 2.5l7.5 3.2v5.7c0 5.3-3.3 9-7.5 10.6-4.2-1.6-7.5-5.3-7.5-10.6V5.7L12 2.5z"></path>
+            <circle class="shield-core" cx="12" cy="11.4" r="2.5"></circle>
+            <circle class="shield-eclipse" cx="14.3" cy="9.9" r="2.5"></circle>
+          </svg>
+        </div>
+        <input id="address-bar" type="text" placeholder="Search or enter address" autocomplete="off" aria-label="Address bar">
+      </div>
+    </div>
   </div>
   <div id="bookmarks-panel" class="hidden">
     <div id="bookmarks-add-row">+ Add current page</div>
     <div id="bookmarks-list"></div>
-  </div>
-  <div id="tabstrip">
-    <button id="new-tab-btn" title="New tab">+</button>
   </div>
   <div id="views"></div>
   <script src="renderer.js"></script>
