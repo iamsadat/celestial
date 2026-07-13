@@ -1,0 +1,34 @@
+{
+  "_readme": [
+    "Copy this file to desktop/config/vault_config.json (gitignored) and fill in real values. Never commit the copy.",
+    "whitelist: extra always-allowed hosts beyond the current tab's top-level origin (e.g. CDNs your own site needs).",
+    "network_obfuscation.mode='socks5' chains ALL proxy traffic through upstream_host:upstream_port via SOCKS5.",
+    "Real SOCKS5 provider: set upstream_host/upstream_port/username/password to what your provider gave you.",
+    "WireGuard instead of a SOCKS5 provider: WireGuard itself is not a SOCKS5 proxy, so run a local SOCKS5 shim",
+    "  bound to the wg interface and point upstream_host/port at that shim, e.g.:",
+    "    1. wg-quick up wg0                                  # bring the tunnel up",
+    "    2. run a local SOCKS5 shim that routes out through it, e.g. `microsocks -i 127.0.0.1 -p 1080`",
+    "       (or any SOCKS5 server bound so its outbound egress is forced onto the wg0 route/table)",
+    "    3. set upstream_host=127.0.0.1, upstream_port=1080, username/password=null",
+    "kill_switch: block all traffic when the tunnel is unhealthy. strict_killswitch: block even before any",
+    "  tunnel has ever been configured/enabled (fail-closed by default instead of fail-open)."
+  ],
+  "proxy_port": 8080,
+  "whitelist": [],
+  "block_websockets": true,
+  "default_user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+  "static_accept_language": "en-US,en;q=0.9",
+  "network_obfuscation": {
+    "enabled": false,
+    "mode": "socks5",
+    "upstream_host": "REPLACE_ME",
+    "upstream_port": 1080,
+    "username": null,
+    "password": null,
+    "kill_switch": true,
+    "strict_killswitch": false,
+    "enable_packet_padding": true,
+    "padding_min_bytes": 64,
+    "padding_max_bytes": 512
+  }
+}

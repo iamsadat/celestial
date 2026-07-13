@@ -43,6 +43,20 @@ _HOP_BY_HOP = {'connection', 'proxy-connection', 'keep-alive', 'transfer-encodin
                'upgrade', 'te', 'trailer', 'proxy-authenticate', 'proxy-authorization',
                'host', 'content-length'}
 
+# ponytail: KNOWN ISOLATION GAP, punted -- _allowed_hosts only ever gains entries
+# (every top-level host a tab has ever navigated to, via set_current_top_level) and
+# never evicts one for process lifetime, and it's a single global shared by every
+# tab/webview (they all go through this one sidecar). So once tab A visits bank.com,
+# bank.com stays reachable from tab B (or a later-compromised tab) for the rest of the
+# session even after A navigates away -- weaker per-site isolation than a fresh
+# same-origin check would give. NOT fixed here: a real fix needs per-tab identity
+# threaded through the proxy (e.g. one listener port/partition per webview, or a
+# request-scoped token from the Electron control channel) so allow-checks can be
+# scoped per origin-that-asked, and that's real plumbing, not a one-line guard --
+# risking it now risks breaking legitimate subresource/CDN loads and multi-tab
+# browsing for a phase-B pass. Proposed fix for a later phase: give each webview a
+# distinct session partition + proxy port (or thread a per-tab id through the control
+# channel and key _allowed_hosts by it), then evict a tab's entries when it closes.
 _current_top_level_host = None
 _allowed_hosts = set()
 _config = {}
@@ -154,7 +168,16 @@ def _dns_connect(host, port, timeout=15):
     SOCKS upstream active -> connect by hostname (remote/rdns resolution through the tunnel).
     Otherwise -> resolve via DoH and connect by IP. Fails closed (raises) if DoH resolution fails."""
     if is_socks_upstream_active():
-        return socket.create_connection((host, port), timeout=timeout)
+        # ponytail: socket.create_connection() runs its own getaddrinfo(host) before
+        # ever calling connect() -- a real local DNS leak (and a hard failure on hosts
+        # that don't resolve locally, e.g. .onion/rdns-only names), even though
+        # socket.socket is patched to socks.socksocket. Build+connect the socket
+        # directly so PySocks (rdns=True) gets the raw hostname and resolves it
+        # remotely, through the tunnel.
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        sock.connect((host, port))
+        return sock
     ip = resolve_host(host)
     if not ip:
         raise RuntimeError(f"DoH resolution failed for {host}")
@@ -284,15 +307,13 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
                 conn = http.client.HTTPSConnection(sni_host, port, timeout=15)
                 conn.sock = sock
             else:
-                # ponytail: HTTPConnection does its own connect() internally, so we only need the
-                # target string here (not a pre-opened socket) -- same DNS-safe branch as _dns_connect.
-                if is_socks_upstream_active():
-                    connect_host = sni_host
-                else:
-                    connect_host = resolve_host(sni_host)
-                    if not connect_host:
-                        raise RuntimeError(f"DoH resolution failed for {sni_host}")
-                conn = http.client.HTTPConnection(connect_host, port, timeout=15)
+                # Same pattern as the https branch above: HTTPConnection's own connect()
+                # has the same local-getaddrinfo leak _dns_connect fixes (see its
+                # SOCKS-branch comment) -- open the raw socket ourselves and hand it off
+                # instead of letting HTTPConnection resolve/connect on its own.
+                raw = _dns_connect(sni_host, port, timeout=15)
+                conn = http.client.HTTPConnection(sni_host, port, timeout=15)
+                conn.sock = raw
 
             conn.request(self.command, path or '/', body=body or None, headers=headers)
             resp = conn.getresponse()

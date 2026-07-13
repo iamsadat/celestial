@@ -56,7 +56,73 @@ for (const [flag, value] of PRIVACY_SWITCHES) {
   else app.commandLine.appendSwitch(flag);
 }
 
+const REAL_PROXY_RULES = "http=127.0.0.1:8080;https=127.0.0.1:8080";
+// ponytail: port 1 is never listened on -> instant ECONNREFUSED. Simplest fail-closed target.
+const BLACKHOLE_PROXY_RULES = "http=127.0.0.1:1;https=127.0.0.1:1";
+const PROXY_BYPASS_RULES = "<-loopback>";
+const KILLSWITCH_POLL_MS = 2000;
+
 let mainWindow = null;
+let killSwitchActive = false;
+
+function checkTunnelHealthy() {
+  return new Promise((resolve) => {
+    const req = http.get("http://127.0.0.1:8765/status", { timeout: 1500 }, (res) => {
+      let data = "";
+      res.on("data", (c) => { data += c; });
+      res.on("end", () => {
+        try { resolve(JSON.parse(data).tunnel_healthy === true); }
+        catch { resolve(false); }
+      });
+    });
+    req.on("error", () => resolve(false));
+    req.on("timeout", () => { req.destroy(); resolve(false); });
+  });
+}
+
+// Fail-closed native kill-switch: polls the sidecar's own health view (already
+// the source of truth for the UI's OFFLINE pill) and, independent of the
+// renderer, black-holes the proxy the instant the tunnel drops. Recovers
+// automatically when health returns.
+async function killSwitchTick() {
+  const shouldBlock = !(await checkTunnelHealthy());
+  if (shouldBlock === killSwitchActive) return;
+  killSwitchActive = shouldBlock;
+  await session.defaultSession.setProxy({
+    proxyRules: killSwitchActive ? BLACKHOLE_PROXY_RULES : REAL_PROXY_RULES,
+    proxyBypassRules: PROXY_BYPASS_RULES,
+  });
+  console.log(killSwitchActive
+    ? "[main] KILL-SWITCH ENGAGED: tunnel unhealthy, tab traffic blocked"
+    : "[main] kill-switch cleared: tunnel healthy, traffic restored");
+}
+
+function installKillSwitchWatcher() {
+  // Second, in-process gate: proxy black-holing needs a network round trip to
+  // the refused port to actually fail a request. This cancels immediately for
+  // anything already in flight or racing the proxy swap, without waiting on it.
+  session.defaultSession.webRequest.onBeforeRequest((details, callback) => {
+    if (!killSwitchActive) return callback({ cancel: false });
+    try {
+      const { hostname } = new URL(details.url);
+      if (hostname !== "127.0.0.1" && hostname !== "localhost" && hostname !== "::1") {
+        return callback({ cancel: true });
+      }
+    } catch {}
+    callback({ cancel: false });
+  });
+  setInterval(killSwitchTick, KILLSWITCH_POLL_MS);
+  killSwitchTick();
+  console.log("[main] kill-switch watcher installed");
+}
+
+function installPrivacyHandlers() {
+  // Deny-by-default: no site gets geolocation/camera/mic/notifications/etc
+  // unless a future settings UI explicitly allowlists it.
+  session.defaultSession.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
+  session.defaultSession.setPermissionCheckHandler(() => false);
+  console.log("[main] permission deny-by-default handlers installed");
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -71,11 +137,13 @@ function createWindow() {
       webviewTag: true,
     },
   });
+  mainWindow.webContents.setWebRTCIPHandlingPolicy("disable_non_proxied_udp");
 
-  // Security guard for <webview>: strip any preload/nodeIntegration a
-  // compromised page could try to smuggle in, and only allow http(s) targets.
+  // Security guard for <webview>: discard any preload a compromised page tries
+  // to smuggle in and pin our own fingerprint shim instead; only allow http(s)
+  // targets.
   mainWindow.webContents.on("will-attach-webview", (event, webPreferences, params) => {
-    delete webPreferences.preload;
+    webPreferences.preload = path.join(__dirname, "fingerprint-preload.js");
     webPreferences.nodeIntegration = false;
     webPreferences.contextIsolation = true;
     webPreferences.sandbox = true;
@@ -83,6 +151,13 @@ function createWindow() {
       event.preventDefault();
     }
   });
+
+  // Covers webviews created after window creation too (every tab, since tabs
+  // are opened dynamically by renderer.js) -- did-attach-webview fires per tab.
+  mainWindow.webContents.on("did-attach-webview", (_event, webContents) => {
+    webContents.setWebRTCIPHandlingPolicy("disable_non_proxied_udp");
+  });
+  console.log("[main] WebRTC disable_non_proxied_udp policy wired for webviews");
 
   mainWindow.loadFile(path.join(__dirname, "renderer", "index.html"));
 }
@@ -110,11 +185,13 @@ app.whenReady().then(async () => {
   // Route the default session (and every <webview>, which inherits it since
   // none of them set a partition) through the Celestial privacy proxy.
   await session.defaultSession.setProxy({
-    proxyRules: "http=127.0.0.1:8080;https=127.0.0.1:8080",
-    proxyBypassRules: "<-loopback>",
+    proxyRules: REAL_PROXY_RULES,
+    proxyBypassRules: PROXY_BYPASS_RULES,
   });
   console.log("[main] proxy applied:", await session.defaultSession.resolveProxy("https://example.com"));
 
+  installPrivacyHandlers();
+  installKillSwitchWatcher();
   createWindow();
 
   app.on("activate", () => {

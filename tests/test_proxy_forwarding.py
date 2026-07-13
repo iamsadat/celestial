@@ -26,8 +26,7 @@ def test_forward_unreachable_target_fails_closed(monkeypatch):
     monkeypatch.setattr(cp, "_allowed_hosts", {"bogus.invalid"})
     monkeypatch.setattr(cp, "_current_top_level_host", None)
     monkeypatch.setattr(cp, "should_block_due_to_killswitch", lambda: False)
-    monkeypatch.setattr(cp, "is_socks_upstream_active", lambda: False)
-    monkeypatch.setattr(cp, "resolve_host", lambda host: "203.0.113.1")
+    monkeypatch.setattr(cp, "_dns_connect", lambda host, port, timeout=15: object())
 
     class FakeConn:
         def __init__(self, *a, **kw): pass
@@ -76,8 +75,7 @@ def test_forward_allowed_host_sanitizes_and_forwards(monkeypatch):
     monkeypatch.setattr(cp, "_allowed_hosts", {"example.com"})
     monkeypatch.setattr(cp, "_current_top_level_host", None)
     monkeypatch.setattr(cp, "should_block_due_to_killswitch", lambda: False)
-    monkeypatch.setattr(cp, "is_socks_upstream_active", lambda: False)
-    monkeypatch.setattr(cp, "resolve_host", lambda host: "93.184.216.34")
+    monkeypatch.setattr(cp, "_dns_connect", lambda host, port, timeout=15: object())
     monkeypatch.setattr(cp, "add_padding_to_request", lambda h, b=b"": (h, b))
 
     captured = {}
@@ -135,17 +133,19 @@ def test_forward_blocked_by_killswitch_no_connect_attempted(monkeypatch):
 
 
 def test_forward_socks_active_skips_local_dns(monkeypatch):
-    # DNS-leak invariant: when SOCKS does remote resolution (rdns=True), resolve_host()
-    # must never run -- a local DoH lookup here would leak the hostname around the tunnel.
+    # DNS-leak invariant: _forward() must hand the raw hostname to _dns_connect (which
+    # owns the SOCKS-vs-DoH branching -- see its own tests in test_leak.py), never a
+    # locally resolved IP, and never call resolve_host() itself.
     monkeypatch.setattr(cp, "_allowed_hosts", {"example.com"})
     monkeypatch.setattr(cp, "_current_top_level_host", None)
     monkeypatch.setattr(cp, "should_block_due_to_killswitch", lambda: False)
-    monkeypatch.setattr(cp, "is_socks_upstream_active", lambda: True)
     monkeypatch.setattr(cp, "resolve_host",
                          lambda host: (_ for _ in ()).throw(AssertionError("DoH must be skipped under SOCKS")))
     monkeypatch.setattr(cp, "add_padding_to_request", lambda h, b=b"": (h, b))
 
     captured = {}
+    monkeypatch.setattr(cp, "_dns_connect",
+                         lambda host, port, timeout=15: captured.setdefault("connect_host", host) or object())
 
     class FakeResponse:
         status = 200
@@ -154,8 +154,7 @@ def test_forward_socks_active_skips_local_dns(monkeypatch):
         def read(self): return b"ok"
 
     class FakeConn:
-        def __init__(self, host, port=None, **kw):
-            captured["connect_host"] = host
+        def __init__(self, *a, **kw): pass
         def request(self, *a, **kw): pass
         def getresponse(self): return FakeResponse()
         def close(self): pass
@@ -173,8 +172,7 @@ def test_forward_head_request_writes_no_body(monkeypatch):
     monkeypatch.setattr(cp, "_allowed_hosts", {"example.com"})
     monkeypatch.setattr(cp, "_current_top_level_host", None)
     monkeypatch.setattr(cp, "should_block_due_to_killswitch", lambda: False)
-    monkeypatch.setattr(cp, "is_socks_upstream_active", lambda: False)
-    monkeypatch.setattr(cp, "resolve_host", lambda host: "93.184.216.34")
+    monkeypatch.setattr(cp, "_dns_connect", lambda host, port, timeout=15: object())
     monkeypatch.setattr(cp, "add_padding_to_request", lambda h, b=b"": (h, b))
 
     class FakeResponse:
