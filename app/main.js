@@ -4,6 +4,8 @@ const path = require("path");
 const fs = require("fs");
 const http = require("http");
 const sidecar = require("./sidecar");
+const storage = require("./storage");
+const { loadExtensions } = require("./extensions");
 
 const CONTROL_TOKEN_PATH = path.join(__dirname, "..", "desktop", "config", ".api_token");
 
@@ -173,7 +175,26 @@ ipcMain.handle("celestial:status", async () => {
   }
 });
 
+// Storage IPC: renderer never touches fs/crypto directly, only these calls
+// through preload's contextBridge. Basic shape validation at the boundary.
+ipcMain.handle("celestial:bookmarks:list", () => storage.listBookmarks());
+ipcMain.handle("celestial:bookmarks:add", (_event, b) => {
+  if (!b || typeof b.url !== "string" || !b.url) throw new Error("invalid bookmark payload");
+  return storage.addBookmark({ url: b.url, title: typeof b.title === "string" ? b.title : undefined });
+});
+ipcMain.handle("celestial:bookmarks:delete", (_event, id) => {
+  if (typeof id !== "string") throw new Error("invalid bookmark id");
+  return storage.deleteBookmark(id);
+});
+ipcMain.handle("celestial:tabs:get", () => storage.getOpenTabs());
+ipcMain.handle("celestial:tabs:save", (_event, tabs) => {
+  if (!Array.isArray(tabs)) throw new Error("invalid tabs payload");
+  return storage.saveOpenTabs(tabs);
+});
+
 app.whenReady().then(async () => {
+  storage.init();
+
   try {
     await sidecar.start();
   } catch (err) {
@@ -189,6 +210,8 @@ app.whenReady().then(async () => {
     proxyBypassRules: PROXY_BYPASS_RULES,
   });
   console.log("[main] proxy applied:", await session.defaultSession.resolveProxy("https://example.com"));
+
+  await loadExtensions(session.defaultSession);
 
   installPrivacyHandlers();
   installKillSwitchWatcher();

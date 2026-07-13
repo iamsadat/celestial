@@ -11,12 +11,18 @@
     <button id="fwd-btn" title="Forward">&rarr;</button>
     <button id="reload-btn" title="Reload">&#8635;</button>
     <input id="address-bar" type="text" placeholder="Search or enter address" autocomplete="off">
+    <button id="bookmark-btn" title="Bookmarks">&#9733;</button>
     <span id="status-pill" class="status-pill">...</span>
+  </div>
+  <div id="bookmarks-panel" class="hidden">
+    <div id="bookmarks-add-row">+ Add current page</div>
+    <div id="bookmarks-list"></div>
   </div>
   <div id="tabstrip">
     <button id="new-tab-btn" title="New tab">+</button>
   </div>
   <div id="views"></div>
   <script src="renderer.js"></script>
+  <script src="bookmarks-panel.js"></script>
 </body>
 </html>

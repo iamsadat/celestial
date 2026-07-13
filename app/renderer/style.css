@@ -25,6 +25,27 @@ body { display: flex; flex-direction: column; }
 .status-pill.secure { color: #34d399; background: rgba(52,211,153,0.1); border-color: rgba(52,211,153,0.2); }
 .status-pill.offline { color: #ff4444; background: rgba(255,68,68,0.1); border-color: rgba(255,68,68,0.25); }
 
+.hidden { display: none !important; }
+
+#bookmarks-panel {
+  position: absolute; top: 54px; right: 12px; width: 260px; max-height: 320px;
+  overflow-y: auto; background: #121a2e; border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 10px; padding: 6px; z-index: 10; box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+#bookmarks-add-row {
+  padding: 8px 10px; font-size: 12px; color: #00d4ff; cursor: pointer; border-radius: 6px;
+}
+#bookmarks-add-row:hover { background: rgba(255,255,255,0.06); }
+.bookmarks-empty { padding: 8px 10px; font-size: 12px; opacity: 0.6; }
+.bookmark-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 6px 10px; font-size: 12px; border-radius: 6px; cursor: pointer;
+}
+.bookmark-row:hover { background: rgba(255,255,255,0.06); }
+.bookmark-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bookmark-remove { opacity: 0.6; }
+.bookmark-remove:hover { opacity: 1; color: #ff4444; }
+
 #tabstrip {
   display: flex; align-items: center; gap: 4px; padding: 6px 10px;
   background: #0f1629; border-bottom: 1px solid rgba(255,255,255,0.06); overflow-x: auto;
