@@ -8,6 +8,7 @@ const backBtn = document.getElementById("back-btn");
 const fwdBtn = document.getElementById("fwd-btn");
 const reloadBtn = document.getElementById("reload-btn");
 const statusPill = document.getElementById("status-pill");
+const chromeEl = document.getElementById("chrome");
 
 const tabs = new Map(); // id -> { webview, tabEl, url, lazy, suspended, lastActive }
 let activeId = null;
@@ -188,14 +189,22 @@ addressBar.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && wv) goTo(wv, addressBar.value);
 });
 
+function applyStatus(healthy) {
+  statusPill.classList.toggle("offline", !healthy);
+  statusPill.title = healthy ? "Secure -- tunnel healthy" : "Offline -- tunnel down";
+  statusPill.setAttribute("aria-label", statusPill.title);
+  chromeEl.classList.toggle("offline", !healthy);
+  addressBar.placeholder = healthy
+    ? "Search or enter address"
+    : "Traffic frozen -- tunnel down. Reconnect to browse.";
+}
+
 async function pollStatus() {
   try {
     const s = await window.celestial.getStatus();
-    statusPill.textContent = s.tunnel_healthy ? "SECURE" : "OFFLINE";
-    statusPill.className = "status-pill " + (s.tunnel_healthy ? "secure" : "offline");
+    applyStatus(!!s.tunnel_healthy);
   } catch {
-    statusPill.textContent = "OFFLINE";
-    statusPill.className = "status-pill offline";
+    applyStatus(false);
   }
 }
 setInterval(pollStatus, 3000);
