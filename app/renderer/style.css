@@ -35,6 +35,7 @@ body { display: flex; flex-direction: column; }
   overflow: hidden; text-overflow: ellipsis; cursor: pointer; border: 1px solid transparent;
 }
 .tab.active { background: rgba(0,212,255,0.08); border-color: rgba(0,212,255,0.2); color: #00d4ff; }
+.tab.suspended { opacity: 0.5; } /* background tab discarded to save RAM; restores on click */
 .tab-close { opacity: 0.6; padding: 0 2px; }
 .tab-close:hover { opacity: 1; color: #ff4444; }
 #new-tab-btn {
