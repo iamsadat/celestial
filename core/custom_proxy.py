@@ -12,8 +12,10 @@ import socket
 import ssl
 import urllib.parse
 import json
+import secrets
 import threading
 from datetime import datetime, timezone
+from pathlib import Path
 
 # Import tunnel features
 try:
@@ -41,11 +43,40 @@ _HOP_BY_HOP = {'connection', 'proxy-connection', 'keep-alive', 'transfer-encodin
                'upgrade', 'te', 'trailer', 'proxy-authenticate', 'proxy-authorization',
                'host', 'content-length'}
 
+# ponytail: KNOWN ISOLATION GAP, punted -- _allowed_hosts only ever gains entries
+# (every top-level host a tab has ever navigated to, via set_current_top_level) and
+# never evicts one for process lifetime, and it's a single global shared by every
+# tab/webview (they all go through this one sidecar). So once tab A visits bank.com,
+# bank.com stays reachable from tab B (or a later-compromised tab) for the rest of the
+# session even after A navigates away -- weaker per-site isolation than a fresh
+# same-origin check would give. NOT fixed here: a real fix needs per-tab identity
+# threaded through the proxy (e.g. one listener port/partition per webview, or a
+# request-scoped token from the Electron control channel) so allow-checks can be
+# scoped per origin-that-asked, and that's real plumbing, not a one-line guard --
+# risking it now risks breaking legitimate subresource/CDN loads and multi-tab
+# browsing for a phase-B pass. Proposed fix for a later phase: give each webview a
+# distinct session partition + proxy port (or thread a per-tab id through the control
+# channel and key _allowed_hosts by it), then evict a tab's entries when it closes.
 _current_top_level_host = None
 _allowed_hosts = set()
 _config = {}
 _blocked_count = 0
 _lock = threading.Lock()
+
+# ponytail: set_current_top_level() only mutates *this process's* globals. That was
+# fine when a launcher imported custom_proxy in-process (core/browser_launcher.py's
+# old model), but the Electron shell runs this proxy as an independent sidecar
+# process, so it needs a real (token-gated) way to call in across the process
+# boundary. Shared secret reuses api_server.py's token file rather than minting a
+# second one.
+_CONTROL_TOKEN_PATH = Path(__file__).parent.parent / "desktop/config/.api_token"
+_CONTROL_PATH = "/__celestial/set-top-level"
+
+def _load_control_token():
+    try:
+        return _CONTROL_TOKEN_PATH.read_text().strip()
+    except Exception:
+        return None
 
 def load_config(config_path="desktop/config/vault_config.json"):
     global _config, _allowed_hosts
@@ -137,7 +168,16 @@ def _dns_connect(host, port, timeout=15):
     SOCKS upstream active -> connect by hostname (remote/rdns resolution through the tunnel).
     Otherwise -> resolve via DoH and connect by IP. Fails closed (raises) if DoH resolution fails."""
     if is_socks_upstream_active():
-        return socket.create_connection((host, port), timeout=timeout)
+        # ponytail: socket.create_connection() runs its own getaddrinfo(host) before
+        # ever calling connect() -- a real local DNS leak (and a hard failure on hosts
+        # that don't resolve locally, e.g. .onion/rdns-only names), even though
+        # socket.socket is patched to socks.socksocket. Build+connect the socket
+        # directly so PySocks (rdns=True) gets the raw hostname and resolves it
+        # remotely, through the tunnel.
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        sock.connect((host, port))
+        return sock
     ip = resolve_host(host)
     if not ip:
         raise RuntimeError(f"DoH resolution failed for {host}")
@@ -203,7 +243,33 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
             audit_log("Network", f"CONNECT failed to {host}: {e}")
             self.send_error(502)
 
+    def _handle_control(self):
+        """Local control channel for the Electron shell to register the
+        top-level host before each navigation. Only matches requests made
+        directly to the proxy in relative-path form (real forwarded HTTP
+        proxy requests always use absolute-URI form per RFC 7230 5.3.2, so
+        this can't collide with a real site's path). Token-gated because
+        loopback destinations bypass this proxy in the browser's own proxy
+        config, so a compromised tab could otherwise reach this port too."""
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path != _CONTROL_PATH:
+            return False
+        qs = urllib.parse.parse_qs(parsed.query)
+        token = (qs.get("token") or [""])[0]
+        host = (qs.get("host") or [""])[0]
+        expected = _load_control_token()
+        if not expected or not secrets.compare_digest(token, expected):
+            self.send_error(403, "Invalid or missing control token")
+            return True
+        if host:
+            set_current_top_level(host)
+        self.send_response(204)
+        self.end_headers()
+        return True
+
     def do_GET(self):
+        if self._handle_control():
+            return
         self._forward()
     def do_POST(self):
         self._forward()
@@ -241,15 +307,13 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
                 conn = http.client.HTTPSConnection(sni_host, port, timeout=15)
                 conn.sock = sock
             else:
-                # ponytail: HTTPConnection does its own connect() internally, so we only need the
-                # target string here (not a pre-opened socket) -- same DNS-safe branch as _dns_connect.
-                if is_socks_upstream_active():
-                    connect_host = sni_host
-                else:
-                    connect_host = resolve_host(sni_host)
-                    if not connect_host:
-                        raise RuntimeError(f"DoH resolution failed for {sni_host}")
-                conn = http.client.HTTPConnection(connect_host, port, timeout=15)
+                # Same pattern as the https branch above: HTTPConnection's own connect()
+                # has the same local-getaddrinfo leak _dns_connect fixes (see its
+                # SOCKS-branch comment) -- open the raw socket ourselves and hand it off
+                # instead of letting HTTPConnection resolve/connect on its own.
+                raw = _dns_connect(sni_host, port, timeout=15)
+                conn = http.client.HTTPConnection(sni_host, port, timeout=15)
+                conn.sock = raw
 
             conn.request(self.command, path or '/', body=body or None, headers=headers)
             resp = conn.getresponse()
