@@ -9,7 +9,8 @@ Run with:
 
 from fastapi import FastAPI, Header, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
+from typing import List, Optional
 import json
 import os
 import time
@@ -20,10 +21,15 @@ import sys
 sys.path.append(str(Path(__file__).parent))
 
 try:
-    from tunnel_manager import is_tunnel_healthy, get_security_status_message
+    from tunnel_manager import (
+        is_tunnel_healthy, get_security_status_message,
+        setup_upstream_if_needed, load_tunnel_config,
+    )
 except ImportError:
     def is_tunnel_healthy(): return True
     def get_security_status_message(): return "🛡️ Secure (demo mode)"
+    def setup_upstream_if_needed(): return False
+    def load_tunnel_config(config_path=None): pass
 
 app = FastAPI(title="Celestial API", version="1.2")
 
@@ -85,6 +91,41 @@ def require_token(x_celestial_token: str = Header(default="")):
     if not secrets.compare_digest(x_celestial_token, _API_TOKEN):
         raise HTTPException(status_code=401, detail="Missing or invalid X-Celestial-Token")
 
+_CONFIG_PATH = Path(__file__).parent.parent / "desktop/config/vault_config.json"
+
+# Sentinel the GET side substitutes for a stored password so the settings panel
+# never sees the real secret. The POST side treats this literal value as "unchanged"
+# instead of persisting it -- required because the panel round-trips GET's response
+# back on save when the user leaves the password field blank.
+_PASSWORD_MASK = "***"
+
+_VALID_MODES = {"socks5"}
+
+class NetworkObfuscationUpdate(BaseModel):
+    enabled: Optional[bool] = None
+    mode: Optional[str] = None
+    upstream_host: Optional[str] = None
+    upstream_port: Optional[int] = Field(default=None, ge=1, le=65535)
+    username: Optional[str] = None
+    password: Optional[str] = None
+    kill_switch: Optional[bool] = None
+    strict_killswitch: Optional[bool] = None
+
+    @field_validator("mode")
+    @classmethod
+    def _mode_whitelist(cls, v):
+        if v is not None and v not in _VALID_MODES:
+            raise ValueError(f"mode must be one of {sorted(_VALID_MODES)}")
+        return v
+
+class ConfigUpdate(BaseModel):
+    proxy_port: Optional[int] = Field(default=None, ge=1, le=65535)
+    whitelist: Optional[List[str]] = None
+    block_websockets: Optional[bool] = None
+    default_user_agent: Optional[str] = None
+    static_accept_language: Optional[str] = None
+    network_obfuscation: Optional[NetworkObfuscationUpdate] = None
+
 class StatusResponse(BaseModel):
     tunnel_healthy: bool
     status_message: str
@@ -102,15 +143,48 @@ async def get_status():
 
 @app.get("/config", dependencies=[Depends(require_token)])
 async def get_config():
-    config_path = Path(__file__).parent.parent / "desktop/config/vault_config.json"
-    if config_path.exists():
-        return json.loads(config_path.read_text())
-    return {"error": "Config not found"}
+    if not _CONFIG_PATH.exists():
+        return {"error": "Config not found"}
+    data = json.loads(_CONFIG_PATH.read_text())
+    net = data.get("network_obfuscation")
+    if isinstance(net, dict) and net.get("password"):
+        data = {**data, "network_obfuscation": {**net, "password": _PASSWORD_MASK}}
+    return data
 
 @app.post("/config", dependencies=[Depends(require_token)])
-async def update_config(new_config: dict):
-    config_path = Path(__file__).parent.parent / "desktop/config/vault_config.json"
-    config_path.write_text(json.dumps(new_config, indent=2))
+async def update_config(update: ConfigUpdate):
+    existing = {}
+    if _CONFIG_PATH.exists():
+        try:
+            existing = json.loads(_CONFIG_PATH.read_text())
+        except (json.JSONDecodeError, OSError):
+            existing = {}
+
+    incoming = update.model_dump(exclude_unset=True)
+    net_incoming = incoming.pop("network_obfuscation", None)
+    existing.update(incoming)
+
+    upstream_changed = False
+    if net_incoming is not None:
+        net_existing = existing.get("network_obfuscation")
+        if not isinstance(net_existing, dict):
+            net_existing = {}
+        if net_incoming.get("password") == _PASSWORD_MASK:
+            net_incoming.pop("password")  # sentinel round-tripped unchanged -- keep stored value
+        net_existing.update(net_incoming)
+        existing["network_obfuscation"] = net_existing
+        upstream_changed = True
+
+    _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _CONFIG_PATH.write_text(json.dumps(existing, indent=2))
+
+    if upstream_changed:
+        try:
+            load_tunnel_config(str(_CONFIG_PATH))  # refresh tunnel_manager's in-process config first
+            setup_upstream_if_needed()
+        except Exception as e:
+            print(f"[API][ERROR] setup_upstream_if_needed failed: {e}")
+
     return {"status": "updated", "timestamp": time.time()}
 
 @app.get("/health")

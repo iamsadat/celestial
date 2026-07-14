@@ -12,8 +12,10 @@ import socket
 import ssl
 import urllib.parse
 import json
+import os
 import secrets
 import threading
+from collections import OrderedDict
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -43,21 +45,23 @@ _HOP_BY_HOP = {'connection', 'proxy-connection', 'keep-alive', 'transfer-encodin
                'upgrade', 'te', 'trailer', 'proxy-authenticate', 'proxy-authorization',
                'host', 'content-length'}
 
-# ponytail: KNOWN ISOLATION GAP, punted -- _allowed_hosts only ever gains entries
-# (every top-level host a tab has ever navigated to, via set_current_top_level) and
-# never evicts one for process lifetime, and it's a single global shared by every
-# tab/webview (they all go through this one sidecar). So once tab A visits bank.com,
-# bank.com stays reachable from tab B (or a later-compromised tab) for the rest of the
-# session even after A navigates away -- weaker per-site isolation than a fresh
-# same-origin check would give. NOT fixed here: a real fix needs per-tab identity
-# threaded through the proxy (e.g. one listener port/partition per webview, or a
-# request-scoped token from the Electron control channel) so allow-checks can be
-# scoped per origin-that-asked, and that's real plumbing, not a one-line guard --
-# risking it now risks breaking legitimate subresource/CDN loads and multi-tab
-# browsing for a phase-B pass. Proposed fix for a later phase: give each webview a
-# distinct session partition + proxy port (or thread a per-tab id through the control
-# channel and key _allowed_hosts by it), then evict a tab's entries when it closes.
-_current_top_level_host = None
+# _allowed_hosts: static config whitelist (desktop/config/vault_config.json), never
+# mutated by tab navigation.
+#
+# _active_top_levels: the Electron shell is a multi-tab process with one shared proxy
+# sidecar, so a single "current top-level host" string misfired third-party checks
+# across tabs (tab B's requests were judged against tab A's origin). Fixed by tracking
+# the SET of currently-open tabs' top-level hosts instead, via the same token-gated
+# control channel (set-top-level now also supports removal on tab close/navigate-away).
+# ponytail: this still doesn't scope "is this a first-party request" to *which* tab
+# asked -- any active tab's origin is fair game as an allowed top-level for any other
+# tab's subresource check (true per-tab isolation needs a request-scoped tab id
+# threaded through the control channel, real plumbing for a later phase). What this
+# does fix: entries no longer accumulate forever -- bounded (LRU-evicted past
+# _MAX_ACTIVE_TOP_LEVELS) and removable, so a closed tab's origin actually stops being
+# trusted instead of leaking privilege for the rest of the process lifetime.
+_MAX_ACTIVE_TOP_LEVELS = 50
+_active_top_levels = OrderedDict()  # host -> None, ordered oldest-touched -> newest
 _allowed_hosts = set()
 _config = {}
 _blocked_count = 0
@@ -93,16 +97,29 @@ def load_config(config_path="desktop/config/vault_config.json"):
         _allowed_hosts = set()
 
 def set_current_top_level(hostname):
-    global _current_top_level_host
+    """Register a tab's top-level host as active (bounded LRU set)."""
+    if not hostname:
+        return
+    h = hostname.lower().strip()
     with _lock:
-        if hostname:
-            _current_top_level_host = hostname.lower().strip()
-            print(f"[PROXY] Current top-level origin set to: {_current_top_level_host}")
-            if _current_top_level_host not in _allowed_hosts:
-                _allowed_hosts.add(_current_top_level_host)
+        if h in _active_top_levels:
+            _active_top_levels.move_to_end(h)
+        else:
+            _active_top_levels[h] = None
+            if len(_active_top_levels) > _MAX_ACTIVE_TOP_LEVELS:
+                _active_top_levels.popitem(last=False)
+        print(f"[PROXY] Top-level origin active: {h} (active_count={len(_active_top_levels)})")
+
+def clear_current_top_level(hostname):
+    """Remove a top-level host from the active set (tab closed/navigated away)."""
+    if not hostname:
+        return
+    h = hostname.lower().strip()
+    with _lock:
+        _active_top_levels.pop(h, None)
+        print(f"[PROXY] Top-level origin cleared: {h} (active_count={len(_active_top_levels)})")
 
 def is_request_allowed(hostname):
-    global _current_top_level_host, _allowed_hosts
     if not hostname:
         return False
     h = hostname.lower().strip()
@@ -121,9 +138,7 @@ def is_request_allowed(hostname):
     with _lock:
         if h in _allowed_hosts:
             return True
-        if _current_top_level_host and h == _current_top_level_host:
-            return True
-        return False
+        return h in _active_top_levels
 
 def audit_log(category, details, blocked=True):
     global _blocked_count
@@ -257,12 +272,16 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
         qs = urllib.parse.parse_qs(parsed.query)
         token = (qs.get("token") or [""])[0]
         host = (qs.get("host") or [""])[0]
+        action = (qs.get("action") or ["add"])[0]
         expected = _load_control_token()
         if not expected or not secrets.compare_digest(token, expected):
             self.send_error(403, "Invalid or missing control token")
             return True
         if host:
-            set_current_top_level(host)
+            if action == "remove":
+                clear_current_top_level(host)
+            else:
+                set_current_top_level(host)
         self.send_response(204)
         self.end_headers()
         return True
@@ -338,9 +357,56 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
 
+def _max_conn():
+    return int(os.environ.get("CELESTIAL_MAX_CONN", "100"))
+
+def _reject_with_503(request):
+    """Write a properly framed 503 directly to the raw client socket and close it --
+    used when the connection pool is saturated, before any handler/thread is spawned,
+    so a saturated proxy rejects fast instead of accepting an unbounded backlog."""
+    body = b"Celestial Proxy: connection limit reached, try again shortly"
+    response = (
+        b"HTTP/1.1 503 Service Unavailable\r\n"
+        b"Content-Type: text/plain\r\n"
+        b"Content-Length: " + str(len(body)).encode() + b"\r\n"
+        b"Connection: close\r\n\r\n" + body
+    )
+    try:
+        request.sendall(response)
+    except Exception:
+        pass
+    finally:
+        try:
+            request.close()
+        except Exception:
+            pass
+
 class ThreadedProxyServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     daemon_threads = True
     allow_reuse_address = True
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._conn_semaphore = threading.BoundedSemaphore(_max_conn())
+
+    def process_request(self, request, client_address):
+        # ponytail: bounded via a semaphore rather than a fixed-size ThreadPoolExecutor --
+        # same cap, no extra queue to manage, and rejection is immediate (non-blocking
+        # acquire) instead of queuing behind a full pool.
+        if not self._conn_semaphore.acquire(blocking=False):
+            audit_log("CONN_LIMIT", f"Connection limit reached ({_max_conn()}), rejecting {client_address}")
+            _reject_with_503(request)
+            return
+
+        def _run():
+            try:
+                self.process_request_thread(request, client_address)
+            finally:
+                self._conn_semaphore.release()
+
+        t = threading.Thread(target=_run)
+        t.daemon = self.daemon_threads
+        t.start()
 
 def run_proxy(port=None, config_path="desktop/config/vault_config.json"):
     load_config(config_path)

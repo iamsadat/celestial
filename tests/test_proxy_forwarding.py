@@ -4,6 +4,7 @@ an upstream failure returns 502 with nothing of the request/response leaked
 to the client. Upstream is mocked throughout -- no real network."""
 import http.client
 import io
+from collections import OrderedDict
 
 import custom_proxy as cp
 
@@ -24,7 +25,7 @@ def _make_handler(method="GET", path="/", headers=None, body=b""):
 
 def test_forward_unreachable_target_fails_closed(monkeypatch):
     monkeypatch.setattr(cp, "_allowed_hosts", {"bogus.invalid"})
-    monkeypatch.setattr(cp, "_current_top_level_host", None)
+    monkeypatch.setattr(cp, "_active_top_levels", OrderedDict())
     monkeypatch.setattr(cp, "should_block_due_to_killswitch", lambda: False)
     monkeypatch.setattr(cp, "_dns_connect", lambda host, port, timeout=15: object())
 
@@ -48,7 +49,7 @@ def test_forward_unreachable_target_fails_closed(monkeypatch):
 
 def test_forward_non_whitelisted_host_blocked(monkeypatch):
     monkeypatch.setattr(cp, "_allowed_hosts", set())
-    monkeypatch.setattr(cp, "_current_top_level_host", None)
+    monkeypatch.setattr(cp, "_active_top_levels", OrderedDict())
     monkeypatch.setattr(cp, "should_block_due_to_killswitch", lambda: False)
     monkeypatch.setattr(cp, "resolve_host",
                          lambda host: (_ for _ in ()).throw(AssertionError("no DoH for blocked host")))
@@ -61,7 +62,7 @@ def test_forward_non_whitelisted_host_blocked(monkeypatch):
 
 def test_forward_tracker_domain_blocked(monkeypatch):
     monkeypatch.setattr(cp, "_allowed_hosts", set())
-    monkeypatch.setattr(cp, "_current_top_level_host", None)
+    monkeypatch.setattr(cp, "_active_top_levels", OrderedDict())
     monkeypatch.setattr(cp, "should_block_due_to_killswitch", lambda: False)
 
     handler = _make_handler("GET", "http://google-analytics.com/collect",
@@ -73,7 +74,7 @@ def test_forward_tracker_domain_blocked(monkeypatch):
 
 def test_forward_allowed_host_sanitizes_and_forwards(monkeypatch):
     monkeypatch.setattr(cp, "_allowed_hosts", {"example.com"})
-    monkeypatch.setattr(cp, "_current_top_level_host", None)
+    monkeypatch.setattr(cp, "_active_top_levels", OrderedDict())
     monkeypatch.setattr(cp, "should_block_due_to_killswitch", lambda: False)
     monkeypatch.setattr(cp, "_dns_connect", lambda host, port, timeout=15: object())
     monkeypatch.setattr(cp, "add_padding_to_request", lambda h, b=b"": (h, b))
@@ -137,7 +138,7 @@ def test_forward_socks_active_skips_local_dns(monkeypatch):
     # owns the SOCKS-vs-DoH branching -- see its own tests in test_leak.py), never a
     # locally resolved IP, and never call resolve_host() itself.
     monkeypatch.setattr(cp, "_allowed_hosts", {"example.com"})
-    monkeypatch.setattr(cp, "_current_top_level_host", None)
+    monkeypatch.setattr(cp, "_active_top_levels", OrderedDict())
     monkeypatch.setattr(cp, "should_block_due_to_killswitch", lambda: False)
     monkeypatch.setattr(cp, "resolve_host",
                          lambda host: (_ for _ in ()).throw(AssertionError("DoH must be skipped under SOCKS")))
@@ -170,7 +171,7 @@ def test_forward_socks_active_skips_local_dns(monkeypatch):
 
 def test_forward_head_request_writes_no_body(monkeypatch):
     monkeypatch.setattr(cp, "_allowed_hosts", {"example.com"})
-    monkeypatch.setattr(cp, "_current_top_level_host", None)
+    monkeypatch.setattr(cp, "_active_top_levels", OrderedDict())
     monkeypatch.setattr(cp, "should_block_due_to_killswitch", lambda: False)
     monkeypatch.setattr(cp, "_dns_connect", lambda host, port, timeout=15: object())
     monkeypatch.setattr(cp, "add_padding_to_request", lambda h, b=b"": (h, b))

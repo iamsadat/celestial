@@ -5,6 +5,7 @@ strict_killswitch must be able to freeze traffic before any tunnel is
 configured. Upstream is mocked throughout -- no real network/DNS/subprocess
 (section 5 uses a local throwaway SOCKS5 stub, still no real network)."""
 import time
+from collections import OrderedDict
 
 import pytest
 
@@ -74,7 +75,7 @@ def test_connect_path_reaches_target_via_doh_ip(monkeypatch):
     # socket.create_connection(host, port) directly, leaking the hostname to
     # the OS resolver. Prove do_CONNECT now routes through _dns_connect.
     monkeypatch.setattr(cp, "_allowed_hosts", {"example.com"})
-    monkeypatch.setattr(cp, "_current_top_level_host", None)
+    monkeypatch.setattr(cp, "_active_top_levels", OrderedDict())
     monkeypatch.setattr(cp, "should_block_due_to_killswitch", lambda: False)
 
     calls = []
@@ -91,7 +92,7 @@ def test_connect_path_reaches_target_via_doh_ip(monkeypatch):
 
 def test_forward_https_reaches_target_via_doh_ip(monkeypatch):
     monkeypatch.setattr(cp, "_allowed_hosts", {"example.com"})
-    monkeypatch.setattr(cp, "_current_top_level_host", None)
+    monkeypatch.setattr(cp, "_active_top_levels", OrderedDict())
     monkeypatch.setattr(cp, "should_block_due_to_killswitch", lambda: False)
     monkeypatch.setattr(cp, "add_padding_to_request", lambda h, b=b"": (h, b))
 
@@ -138,7 +139,7 @@ def test_dns_connect_raises_on_doh_failure(monkeypatch):
 
 def test_connect_doh_failure_returns_error_no_connect_attempted(monkeypatch):
     monkeypatch.setattr(cp, "_allowed_hosts", {"nowhere.invalid"})
-    monkeypatch.setattr(cp, "_current_top_level_host", None)
+    monkeypatch.setattr(cp, "_active_top_levels", OrderedDict())
     monkeypatch.setattr(cp, "should_block_due_to_killswitch", lambda: False)
     monkeypatch.setattr(cp, "is_socks_upstream_active", lambda: False)
     monkeypatch.setattr(cp, "resolve_host", lambda host: None)
@@ -154,7 +155,7 @@ def test_connect_doh_failure_returns_error_no_connect_attempted(monkeypatch):
 
 def test_forward_https_doh_failure_returns_502_no_connect_attempted(monkeypatch):
     monkeypatch.setattr(cp, "_allowed_hosts", {"nowhere.invalid"})
-    monkeypatch.setattr(cp, "_current_top_level_host", None)
+    monkeypatch.setattr(cp, "_active_top_levels", OrderedDict())
     monkeypatch.setattr(cp, "should_block_due_to_killswitch", lambda: False)
     monkeypatch.setattr(cp, "is_socks_upstream_active", lambda: False)
     monkeypatch.setattr(cp, "resolve_host", lambda host: None)
