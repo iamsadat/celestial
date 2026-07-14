@@ -62,13 +62,14 @@ function init() {
   if (fs.existsSync(storePath)) {
     try {
       state = JSON.parse(decryptBuf(fs.readFileSync(storePath)).toString("utf8"));
+      if (!Array.isArray(state.downloads)) state.downloads = []; // migrate older stores
       console.log("[storage] loaded existing encrypted store");
     } catch (err) {
       console.error("[storage] failed to decrypt existing store, starting fresh:", err.message);
-      state = { bookmarks: [], history: [], tabs: [] };
+      state = { bookmarks: [], history: [], tabs: [], downloads: [] };
     }
   } else {
-    state = { bookmarks: [], history: [], tabs: [] };
+    state = { bookmarks: [], history: [], tabs: [], downloads: [] };
     persist();
     console.log("[storage] initialized new encrypted store at", storePath);
   }
@@ -90,13 +91,24 @@ function deleteBookmark(id) {
 }
 
 // --- history ---
+const HISTORY_CAP = 5000;
 function recordHistory({ url, title }) {
-  // ponytail: unbounded growth is fine at this scale; cap/rotate if it matters.
-  state.history.push({ url, title: title || url, visitedAt: Date.now() });
+  const h = { id: crypto.randomUUID(), url, title: title || url, visitedAt: Date.now() };
+  state.history.push(h);
+  if (state.history.length > HISTORY_CAP) state.history = state.history.slice(-HISTORY_CAP);
+  persist();
+  return h;
+}
+function listHistory() {
+  return state.history.slice().reverse();
+}
+function clearHistory() {
+  state.history = [];
   persist();
 }
-function listHistory(limit = 200) {
-  return state.history.slice(-limit).reverse();
+function deleteHistoryEntry(id) {
+  state.history = state.history.filter((h) => h.id !== id);
+  persist();
 }
 
 // --- open tabs (data model only for now) ---
@@ -109,6 +121,18 @@ function saveOpenTabs(tabs) {
 }
 function getOpenTabs() {
   return state.tabs;
+}
+
+// --- downloads: completed-download history only (in-progress state lives in
+// renderer memory via IPC events; only finished items get persisted) ---
+function addDownload({ filename, path: filePath, url, size }) {
+  const d = { id: crypto.randomUUID(), filename, path: filePath, url, size, completedAt: Date.now() };
+  state.downloads.push(d);
+  persist();
+  return d;
+}
+function listDownloads() {
+  return state.downloads.slice().reverse();
 }
 
 // --- sync: design now, build later ---
@@ -132,8 +156,12 @@ module.exports = {
   deleteBookmark,
   recordHistory,
   listHistory,
+  clearHistory,
+  deleteHistoryEntry,
   saveOpenTabs,
   getOpenTabs,
+  addDownload,
+  listDownloads,
   exportEncrypted,
   importEncrypted,
 };
