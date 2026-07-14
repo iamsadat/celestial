@@ -28,10 +28,18 @@ function normalizeUrl(input) {
 
 async function goTo(webview, rawUrl) {
   const url = normalizeUrl(rawUrl);
-  // Proxy whitelist gate needs to know the host before the request lands.
-  await window.celestial.setTopLevel(new URL(url).hostname);
+  // Local pages (new-tab start page) never go through the network proxy, so
+  // there's no top-level host to register with the whitelist gate.
+  if (!url.startsWith("file://")) {
+    await window.celestial.setTopLevel(new URL(url).hostname);
+  }
   if (webview.src) webview.loadURL(url);
   else webview.src = url;
+}
+
+function recordHistoryVisit(url) {
+  if (!url || url === "about:blank" || url.startsWith("file://")) return;
+  window.celestial.addHistory({ url }).catch(() => {});
 }
 
 // ponytail: debounce disk writes -- tabs change (nav/open/close) far more
@@ -53,10 +61,12 @@ function wireWebviewEvents(id, webview) {
     t.url = e.url;
     if (id === activeId) addressBar.value = e.url;
     scheduleSaveTabs();
+    recordHistoryVisit(e.url);
   });
   webview.addEventListener("did-navigate-in-page", (e) => {
     t.url = e.url;
     if (id === activeId) addressBar.value = e.url;
+    recordHistoryVisit(e.url);
   });
 }
 
@@ -106,12 +116,12 @@ setInterval(checkIdleTabs, IDLE_CHECK_MS);
 function newTab(url, opts = {}) {
   const id = `tab-${++tabCounter}`;
   const lazy = !!opts.lazy;
-  const normalized = normalizeUrl(url || "https://example.com");
+  const normalized = normalizeUrl(url || window.celestial.startPageUrl);
 
   const tabEl = document.createElement("div");
   tabEl.className = "tab";
   const label = document.createElement("span");
-  label.textContent = lazy ? new URL(normalized).hostname : "New Tab";
+  label.textContent = lazy && !normalized.startsWith("file://") ? new URL(normalized).hostname : "New Tab";
   tabEl.appendChild(label);
   tabEl.addEventListener("click", () => activate(id));
 
@@ -180,6 +190,15 @@ function activeWebview() {
 window.celestialActiveWebview = activeWebview;
 window.celestialGoTo = goTo;
 
+// Shared by every slide-in panel script (bookmarks/settings/downloads/history)
+// so opening one closes the others instead of stacking.
+const PANEL_IDS = ["bookmarks-panel", "settings-panel", "downloads-panel", "history-panel"];
+window.celestialClosePanels = (exceptId) => {
+  for (const id of PANEL_IDS) {
+    if (id !== exceptId) document.getElementById(id)?.classList.add("hidden");
+  }
+};
+
 newTabBtn.addEventListener("click", () => newTab());
 backBtn.addEventListener("click", () => activeWebview()?.goBack());
 fwdBtn.addEventListener("click", () => activeWebview()?.goForward());
@@ -221,6 +240,6 @@ pollStatus();
   if (Array.isArray(saved) && saved.length) {
     for (const t of saved) newTab(t.url, { lazy: true, activate: false });
   } else {
-    newTab("https://example.com");
+    newTab();
   }
 })();

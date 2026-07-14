@@ -24,7 +24,13 @@
         <button id="bookmark-btn" title="Bookmarks" aria-label="Bookmarks">
           <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M6 3h12v18l-6-4-6 4V3z"></path></svg>
         </button>
-        <button id="menu-btn" title="Menu" aria-label="Menu">
+        <button id="history-btn" title="History" aria-label="History">
+          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.6"></circle><path d="M12 7.5v5l3.5 2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path></svg>
+        </button>
+        <button id="downloads-btn" title="Downloads" aria-label="Downloads">
+          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M12 3v11.5M8 11l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path><path d="M5 17.5v2a1.5 1.5 0 001.5 1.5h11a1.5 1.5 0 001.5-1.5v-2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path></svg>
+        </button>
+        <button id="menu-btn" title="Settings" aria-label="Settings">
           <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><circle cx="5" cy="12" r="1.7"></circle><circle cx="12" cy="12" r="1.7"></circle><circle cx="19" cy="12" r="1.7"></circle></svg>
         </button>
       </div>
@@ -45,12 +51,53 @@
       </div>
     </div>
   </div>
-  <div id="bookmarks-panel" class="hidden">
+  <div id="bookmarks-panel" class="panel hidden">
     <div id="bookmarks-add-row">+ Add current page</div>
     <div id="bookmarks-list"></div>
+  </div>
+  <div id="settings-panel" class="panel panel-wide hidden">
+    <div class="panel-section-title">Connection</div>
+    <div id="settings-status" class="settings-status">Checking...</div>
+
+    <div class="panel-section-title">Kill-switch</div>
+    <label class="settings-toggle"><input type="checkbox" id="killswitch-toggle"> Enabled</label>
+    <label class="settings-toggle"><input type="checkbox" id="strict-killswitch-toggle"> Strict (fail closed always)</label>
+
+    <div class="panel-section-title">Tracker whitelist</div>
+    <div id="whitelist-list"></div>
+    <div class="settings-add-row">
+      <input id="whitelist-input" type="text" placeholder="example.com" class="settings-input mono">
+      <button id="whitelist-add-btn">Add</button>
+    </div>
+
+    <div class="panel-section-title">Upstream tunnel</div>
+    <label class="settings-toggle"><input type="checkbox" id="tunnel-enabled-toggle"> Enabled</label>
+    <label class="settings-field">Mode
+      <select id="tunnel-mode"><option value="socks5">socks5</option></select>
+    </label>
+    <label class="settings-field">Host <input id="tunnel-host" type="text" class="settings-input mono"></label>
+    <label class="settings-field">Port <input id="tunnel-port" type="number" class="settings-input mono"></label>
+    <label class="settings-field">Username <input id="tunnel-username" type="text" class="settings-input"></label>
+    <label class="settings-field">Password <input id="tunnel-password" type="password" class="settings-input" placeholder="unchanged"></label>
+
+    <button id="settings-save-btn">Save</button>
+    <div id="settings-save-msg" class="settings-save-msg"></div>
+  </div>
+  <div id="downloads-panel" class="panel panel-wide hidden">
+    <div id="downloads-list"></div>
+  </div>
+  <div id="history-panel" class="panel panel-wide hidden">
+    <div id="history-toolbar">
+      <input id="history-search" type="text" placeholder="Search history" class="settings-input">
+      <button id="history-clear-btn">Clear</button>
+    </div>
+    <div id="history-list"></div>
   </div>
   <div id="views"></div>
   <script src="renderer.js"></script>
   <script src="bookmarks-panel.js"></script>
+  <script src="settings-panel.js"></script>
+  <script src="downloads-panel.js"></script>
+  <script src="history-panel.js"></script>
 </body>
 </html>

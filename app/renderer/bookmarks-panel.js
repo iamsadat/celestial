@@ -57,6 +57,7 @@ addRow.addEventListener("click", async () => {
 
 bookmarkBtn.addEventListener("click", () => {
   const isHidden = panel.classList.contains("hidden");
+  if (isHidden) window.celestialClosePanels("bookmarks-panel");
   panel.classList.toggle("hidden");
   if (isHidden) renderBookmarks();
 });
