@@ -93,7 +93,17 @@
     </div>
     <div id="history-list"></div>
   </div>
-  <div id="views"></div>
+  <div id="views">
+    <div id="find-bar" class="find-bar hidden">
+      <input id="find-input" type="text" placeholder="Find in page" autocomplete="off" aria-label="Find in page">
+      <span id="find-count" class="find-count"></span>
+      <button id="find-prev-btn" title="Previous match" aria-label="Previous match">&uarr;</button>
+      <button id="find-next-btn" title="Next match" aria-label="Next match">&darr;</button>
+      <button id="find-close-btn" title="Close" aria-label="Close">&times;</button>
+    </div>
+    <div id="zoom-indicator" class="zoom-indicator hidden"></div>
+  </div>
+  <script src="webview-tools.js"></script>
   <script src="renderer.js"></script>
   <script src="bookmarks-panel.js"></script>
   <script src="settings-panel.js"></script>

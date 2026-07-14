@@ -114,3 +114,7 @@ document.addEventListener("click", (e) => {
     panel.classList.add("hidden");
   }
 });
+
+window.celestial.onShortcut((action) => {
+  if (action === "downloads-panel") downloadsBtn.click();
+});

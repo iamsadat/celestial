@@ -1,5 +1,5 @@
 "use strict";
-const { app, BrowserWindow, ipcMain, session, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, session, shell, Menu, clipboard } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const http = require("http");
@@ -85,7 +85,6 @@ const BLACKHOLE_PROXY_RULES = "http=127.0.0.1:1;https=127.0.0.1:1";
 const PROXY_BYPASS_RULES = "<-loopback>";
 const KILLSWITCH_POLL_MS = 2000;
 
-let mainWindow = null;
 let killSwitchActive = false;
 
 function checkTunnelHealthy() {
@@ -170,7 +169,12 @@ function installDownloadHandler() {
     const savePath = uniquifyPath(app.getPath("downloads"), item.getFilename());
     item.setSavePath(savePath);
 
-    const send = (payload) => mainWindow?.webContents.send("celestial:downloads:event", { id, ...payload });
+    // Downloads/history/bookmarks are process-wide state (storage.js, one file
+    // on disk), not per-window, so broadcast to every open window rather than
+    // tracking which window's tab started the download.
+    const send = (payload) => {
+      for (const w of BrowserWindow.getAllWindows()) w.webContents.send("celestial:downloads:event", { id, ...payload });
+    };
     send({ state: "started", filename: path.basename(savePath), path: savePath, totalBytes: item.getTotalBytes() });
 
     item.on("updated", (_e, state) => {
@@ -188,11 +192,51 @@ function installDownloadHandler() {
   console.log("[main] download handler installed");
 }
 
+// Builds the context menu for a right-click inside a tab's <webview>. Runs
+// once per click (not wired at window scope) since it needs the specific
+// webContents + click params (link/image/selection under the cursor).
+function buildWebviewContextMenu(webContents, params) {
+  const template = [
+    { label: "Back", enabled: webContents.canGoBack(), click: () => webContents.goBack() },
+    { label: "Forward", enabled: webContents.canGoForward(), click: () => webContents.goForward() },
+    { label: "Reload", click: () => webContents.reload() },
+    { type: "separator" },
+  ];
+  if (params.isEditable) {
+    template.push(
+      { label: "Cut", role: "cut", enabled: params.editFlags.canCut },
+      { label: "Copy", role: "copy", enabled: params.editFlags.canCopy },
+      { label: "Paste", role: "paste", enabled: params.editFlags.canPaste },
+      { type: "separator" },
+    );
+  } else if (params.selectionText) {
+    template.push({ label: "Copy", role: "copy" }, { type: "separator" });
+  }
+  const ownerWin = BrowserWindow.fromWebContents(webContents.hostWebContents || webContents);
+  if (params.linkURL) {
+    template.push(
+      { label: "Copy link address", click: () => clipboard.writeText(params.linkURL) },
+      { label: "Open link in new tab", click: () => ownerWin?.webContents.send("celestial:open-link-new-tab", params.linkURL) },
+      { type: "separator" },
+    );
+  }
+  if (params.mediaType === "image" && params.srcURL) {
+    // Reuses the existing will-download flow (installDownloadHandler) --
+    // downloadURL just triggers it, no separate save-as code needed.
+    template.push({ label: "Save image as...", click: () => webContents.downloadURL(params.srcURL) }, { type: "separator" });
+  }
+  if (!app.isPackaged) {
+    template.push({ label: "Inspect Element", click: () => webContents.inspectElement(params.x, params.y) });
+  }
+  Menu.buildFromTemplate(template).popup({ window: ownerWin || undefined });
+}
+
 function createWindow() {
-  mainWindow = new BrowserWindow({
+  const win = new BrowserWindow({
     width: 1280,
     height: 800,
     backgroundColor: "#0a0f1e",
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -201,13 +245,14 @@ function createWindow() {
       webviewTag: true,
     },
   });
-  mainWindow.webContents.setWebRTCIPHandlingPolicy("disable_non_proxied_udp");
+  win.setMenuBarVisibility(false);
+  win.webContents.setWebRTCIPHandlingPolicy("disable_non_proxied_udp");
 
   // Security guard for <webview>: discard any preload a compromised page tries
   // to smuggle in and pin our own fingerprint shim instead; only allow http(s)
   // targets, plus the exact local new-tab page (its own minimal, read-only
   // preload -- never the fingerprint shim, and never arbitrary file:// paths).
-  mainWindow.webContents.on("will-attach-webview", (event, webPreferences, params) => {
+  win.webContents.on("will-attach-webview", (event, webPreferences, params) => {
     webPreferences.preload = params.src === START_PAGE_URL
       ? path.join(__dirname, "start-preload.js")
       : path.join(__dirname, "fingerprint-preload.js");
@@ -221,12 +266,63 @@ function createWindow() {
 
   // Covers webviews created after window creation too (every tab, since tabs
   // are opened dynamically by renderer.js) -- did-attach-webview fires per tab.
-  mainWindow.webContents.on("did-attach-webview", (_event, webContents) => {
+  win.webContents.on("did-attach-webview", (_event, webContents) => {
     webContents.setWebRTCIPHandlingPolicy("disable_non_proxied_udp");
+    webContents.on("context-menu", (_e, params) => buildWebviewContextMenu(webContents, params));
   });
   console.log("[main] WebRTC disable_non_proxied_udp policy wired for webviews");
 
-  mainWindow.loadFile(path.join(__dirname, "renderer", "index.html"));
+  win.loadFile(path.join(__dirname, "renderer", "index.html"));
+  return win;
+}
+
+// Single application menu shared by every window (electron scopes it app-wide,
+// not per-BrowserWindow). Menu bar itself stays hidden (autoHideMenuBar above)
+// -- this only exists so the accelerators fire regardless of what has focus
+// (chrome or a webview), which before-input-event on each webview can't do
+// as robustly. Click handlers forward to the focused window's renderer over
+// the celestial:shortcut channel; renderer.js and friends dispatch from there.
+function buildAppMenu() {
+  const send = (action) => (_menuItem, win) => win?.webContents.send("celestial:shortcut", action);
+  const tabIndexItems = Array.from({ length: 8 }, (_, i) => ({
+    label: `Tab ${i + 1}`, accelerator: `CommandOrControl+${i + 1}`, click: send(`tab-${i + 1}`),
+  }));
+
+  const template = [
+    ...(process.platform === "darwin" ? [{ role: "appMenu" }] : []),
+    { role: "editMenu" },
+    {
+      label: "Celestial",
+      submenu: [
+        { label: "New Tab", accelerator: "CommandOrControl+T", click: send("new-tab") },
+        { label: "Close Tab", accelerator: "CommandOrControl+W", click: send("close-tab") },
+        { label: "Next Tab", accelerator: "CommandOrControl+Tab", click: send("next-tab") },
+        { label: "Previous Tab", accelerator: "CommandOrControl+Shift+Tab", click: send("prev-tab") },
+        { type: "separator" },
+        { label: "Focus Address Bar", accelerator: "CommandOrControl+L", click: send("focus-address-bar") },
+        { label: "Reload", accelerator: "CommandOrControl+R", click: send("reload") },
+        { label: "Back", accelerator: "Alt+Left", click: send("back") },
+        { label: "Forward", accelerator: "Alt+Right", click: send("forward") },
+        { type: "separator" },
+        ...tabIndexItems,
+        { label: "Last Tab", accelerator: "CommandOrControl+9", click: send("tab-last") },
+        { type: "separator" },
+        { label: "Find in Page", accelerator: "CommandOrControl+F", click: send("find") },
+        { label: "Print", accelerator: "CommandOrControl+P", click: send("print") },
+        { label: "Zoom In", accelerator: "CommandOrControl+=", click: send("zoom-in") },
+        { label: "Zoom In (alt)", accelerator: "CommandOrControl+Plus", click: send("zoom-in"), visible: false },
+        { label: "Zoom Out", accelerator: "CommandOrControl+-", click: send("zoom-out") },
+        { label: "Reset Zoom", accelerator: "CommandOrControl+0", click: send("zoom-reset") },
+        { type: "separator" },
+        { label: "History", accelerator: "CommandOrControl+H", click: send("history-panel") },
+        { label: "Downloads", accelerator: "CommandOrControl+J", click: send("downloads-panel") },
+        { label: "Bookmark Page", accelerator: "CommandOrControl+D", click: send("bookmark-current") },
+        { type: "separator" },
+        { label: "New Window", accelerator: "CommandOrControl+Shift+N", click: () => createWindow() },
+      ],
+    },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
 ipcMain.handle("celestial:set-top-level", (_event, host) => setProxyTopLevel(host));
@@ -272,6 +368,23 @@ ipcMain.handle("celestial:downloads:list", () => storage.listDownloads());
 ipcMain.handle("celestial:downloads:show", (_event, filePath) => {
   if (typeof filePath !== "string" || !filePath) throw new Error("invalid path");
   shell.showItemInFolder(filePath);
+});
+
+// Tab-strip right-click: renderer owns tab state (order, pinned), so the
+// popup just reports back which action was picked over the same
+// celestial:tab-context-menu:action channel renderer.js listens on -- it
+// applies the actual close/duplicate/pin change itself.
+ipcMain.on("celestial:tab-context-menu", (event, payload) => {
+  if (!payload || typeof payload.id !== "string") return;
+  const reply = (action) => event.sender.send("celestial:tab-context-menu:action", { id: payload.id, action });
+  const template = [
+    { label: "Close tab", click: () => reply("close") },
+    { label: "Close other tabs", click: () => reply("close-others") },
+    { label: "Duplicate tab", click: () => reply("duplicate") },
+    { label: payload.pinned ? "Unpin tab" : "Pin tab", click: () => reply("toggle-pin") },
+  ];
+  const win = BrowserWindow.fromWebContents(event.sender);
+  Menu.buildFromTemplate(template).popup({ window: win || undefined });
 });
 
 // Proxies GET/POST /config to the Python control API (:8765) so the renderer
@@ -329,6 +442,7 @@ app.whenReady().then(async () => {
   installPrivacyHandlers();
   installKillSwitchWatcher();
   installDownloadHandler();
+  buildAppMenu();
   createWindow();
 
   app.on("activate", () => {
