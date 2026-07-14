@@ -28,4 +28,8 @@ contextBridge.exposeInMainWorld("celestial", {
   listDownloads: () => ipcRenderer.invoke("celestial:downloads:list"),
   showDownload: (filePath) => ipcRenderer.invoke("celestial:downloads:show", filePath),
   onDownloadEvent: (cb) => ipcRenderer.on("celestial:downloads:event", (_e, payload) => cb(payload)),
+  onShortcut: (cb) => ipcRenderer.on("celestial:shortcut", (_e, action) => cb(action)),
+  showTabContextMenu: (payload) => ipcRenderer.send("celestial:tab-context-menu", payload),
+  onTabContextAction: (cb) => ipcRenderer.on("celestial:tab-context-menu:action", (_e, data) => cb(data)),
+  onOpenLinkInNewTab: (cb) => ipcRenderer.on("celestial:open-link-new-tab", (_e, url) => cb(url)),
 });

@@ -101,3 +101,7 @@ document.addEventListener("click", (e) => {
     panel.classList.add("hidden");
   }
 });
+
+window.celestial.onShortcut((action) => {
+  if (action === "history-panel") historyBtn.click();
+});

@@ -67,3 +67,11 @@ document.addEventListener("click", (e) => {
     panel.classList.add("hidden");
   }
 });
+
+window.celestial.onShortcut(async (action) => {
+  if (action !== "bookmark-current") return;
+  const wv = window.celestialActiveWebview();
+  if (!wv || !wv.src) return;
+  await window.celestial.addBookmark({ url: wv.src, title: wv.getTitle() || wv.src });
+  if (!panel.classList.contains("hidden")) renderBookmarks();
+});
