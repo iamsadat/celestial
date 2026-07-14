@@ -47,7 +47,7 @@ function recordHistoryVisit(url) {
 function scheduleSaveTabs() {
   clearTimeout(saveTabsTimer);
   saveTabsTimer = setTimeout(() => {
-    const snapshot = [...tabs.values()].map((t) => ({ url: t.url }));
+    const snapshot = [...tabs.values()].map((t) => ({ url: t.url, pinned: !!t.pinned }));
     window.celestial.saveTabs(snapshot).catch(() => {});
   }, 400);
 }
@@ -68,6 +68,12 @@ function wireWebviewEvents(id, webview) {
     if (id === activeId) addressBar.value = e.url;
     recordHistoryVisit(e.url);
   });
+  webview.addEventListener("page-favicon-updated", (e) => {
+    const url = e.favicons && e.favicons[0];
+    if (!url) return;
+    t.faviconEl.style.backgroundImage = `url("${url}")`;
+    t.faviconEl.classList.add("has-favicon");
+  });
 }
 
 // Turns a placeholder (lazy or freshly created) tab entry into a real
@@ -80,6 +86,7 @@ function materialize(id) {
   viewsEl.appendChild(webview);
   t.webview = webview;
   wireWebviewEvents(id, webview);
+  window.celestialWireFindEvents?.(webview);
   goTo(webview, t.url);
   t.lazy = false;
 }
@@ -116,10 +123,15 @@ setInterval(checkIdleTabs, IDLE_CHECK_MS);
 function newTab(url, opts = {}) {
   const id = `tab-${++tabCounter}`;
   const lazy = !!opts.lazy;
+  const pinned = !!opts.pinned;
   const normalized = normalizeUrl(url || window.celestial.startPageUrl);
 
   const tabEl = document.createElement("div");
-  tabEl.className = "tab";
+  tabEl.className = pinned ? "tab pinned" : "tab";
+  tabEl.draggable = true;
+  // tabEl.firstChild is relied on elsewhere as the label span -- favicon and
+  // close button are appended after it (kept leftmost visually via CSS
+  // `order`, not DOM position) so that invariant holds.
   const label = document.createElement("span");
   label.textContent = lazy && !normalized.startsWith("file://") ? new URL(normalized).hostname : "New Tab";
   tabEl.appendChild(label);
@@ -131,14 +143,26 @@ function newTab(url, opts = {}) {
   closeBtn.addEventListener("click", (e) => { e.stopPropagation(); closeTab(id); });
   tabEl.appendChild(closeBtn);
 
+  const faviconEl = document.createElement("span");
+  faviconEl.className = "tab-favicon";
+  tabEl.appendChild(faviconEl);
+
+  wireTabDrag(id, tabEl);
+  tabEl.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    window.celestial.showTabContextMenu({ id, pinned: !!tabs.get(id).pinned });
+  });
+
   tabstripEl.insertBefore(tabEl, newTabBtn);
 
   tabs.set(id, {
     webview: null,
     tabEl,
+    faviconEl,
     url: normalized,
     lazy,
     suspended: false,
+    pinned,
     lastActive: Date.now(),
   });
 
@@ -146,6 +170,86 @@ function newTab(url, opts = {}) {
   if (opts.activate !== false) activate(id);
   scheduleSaveTabs();
   return id;
+}
+
+// ---------- drag-reorder + pinned tabs ----------
+
+let dragSourceId = null;
+
+function wireTabDrag(id, tabEl) {
+  tabEl.addEventListener("dragstart", (e) => {
+    dragSourceId = id;
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", id);
+  });
+  tabEl.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  });
+  tabEl.addEventListener("dragenter", () => tabEl.classList.add("drag-over"));
+  tabEl.addEventListener("dragleave", () => tabEl.classList.remove("drag-over"));
+  tabEl.addEventListener("drop", (e) => {
+    e.preventDefault();
+    tabEl.classList.remove("drag-over");
+    const draggedId = dragSourceId;
+    dragSourceId = null;
+    if (!draggedId || draggedId === id || !tabs.has(draggedId)) return;
+    reorderTab(draggedId, id);
+  });
+}
+
+// Moves draggedId to just before targetId, then re-applies the pinned-first
+// invariant regardless of where the user actually dropped it.
+function reorderTab(draggedId, targetId) {
+  const order = [...tabs.keys()].filter((tid) => tid !== draggedId);
+  order.splice(order.indexOf(targetId), 0, draggedId);
+  applyTabOrder(order);
+}
+
+// Single source of truth for tab order: rebuilds the Map (which every
+// iteration site -- activate, closeTab, checkIdleTabs, scheduleSaveTabs --
+// already relies on for ordering) and repositions the DOM to match.
+function applyTabOrder(order) {
+  const pinned = order.filter((id) => tabs.get(id).pinned);
+  const unpinned = order.filter((id) => !tabs.get(id).pinned);
+  const sorted = [...pinned, ...unpinned];
+
+  const rebuilt = new Map();
+  for (const id of sorted) {
+    const t = tabs.get(id);
+    rebuilt.set(id, t);
+    tabstripEl.insertBefore(t.tabEl, newTabBtn);
+  }
+  tabs.clear();
+  for (const [id, t] of rebuilt) tabs.set(id, t);
+  scheduleSaveTabs();
+}
+
+function togglePin(id) {
+  const t = tabs.get(id);
+  if (!t) return;
+  t.pinned = !t.pinned;
+  t.tabEl.classList.toggle("pinned", t.pinned);
+  applyTabOrder([...tabs.keys()]);
+}
+
+function closeOtherTabs(keepId) {
+  for (const id of [...tabs.keys()]) {
+    if (id !== keepId && !tabs.get(id).pinned) closeTab(id);
+  }
+}
+
+function cycleTab(delta) {
+  const ids = [...tabs.keys()];
+  if (!ids.length) return;
+  const idx = ids.indexOf(activeId);
+  activate(ids[(idx + delta + ids.length) % ids.length]);
+}
+
+function activateTabByIndex(n) {
+  const ids = [...tabs.keys()];
+  const idx = n === "last" ? ids.length - 1 : n - 1;
+  if (ids[idx]) activate(ids[idx]);
 }
 
 function activate(id) {
@@ -238,8 +342,38 @@ pollStatus();
     saved = await window.celestial.getTabs();
   } catch {}
   if (Array.isArray(saved) && saved.length) {
-    for (const t of saved) newTab(t.url, { lazy: true, activate: false });
+    for (const t of saved) newTab(t.url, { lazy: true, activate: false, pinned: t.pinned });
   } else {
     newTab();
   }
 })();
+
+// ---------- keyboard shortcuts + context-menu actions from main ----------
+// Accelerators live in main.js's application menu (works regardless of
+// whether chrome or a webview has focus); this just dispatches the action
+// string it forwards. Other shortcut actions (find/zoom/print, panel
+// buttons, bookmark-current) are handled by their own files the same way.
+
+window.celestial.onShortcut((action) => {
+  const wv = activeWebview();
+  if (action === "new-tab") newTab();
+  else if (action === "close-tab") {
+    const t = tabs.get(activeId);
+    if (t && !t.pinned) closeTab(activeId);
+  } else if (action === "next-tab") cycleTab(1);
+  else if (action === "prev-tab") cycleTab(-1);
+  else if (action === "focus-address-bar") { addressBar.focus(); addressBar.select(); }
+  else if (action === "reload") wv?.reload();
+  else if (action === "back") wv?.goBack();
+  else if (action === "forward") wv?.goForward();
+  else if (action.startsWith("tab-")) activateTabByIndex(action === "tab-last" ? "last" : Number(action.slice(4)));
+});
+
+window.celestial.onTabContextAction(({ id, action }) => {
+  if (action === "close") closeTab(id);
+  else if (action === "close-others") closeOtherTabs(id);
+  else if (action === "duplicate") newTab(tabs.get(id)?.url);
+  else if (action === "toggle-pin") togglePin(id);
+});
+
+window.celestial.onOpenLinkInNewTab((url) => newTab(url));

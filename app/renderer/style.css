@@ -117,6 +117,23 @@ button {
 }
 .tab-close:hover { opacity: 1; color: var(--alert); background: rgba(255,107,138,0.1); }
 
+/* order: -1 places this before the label visually without moving it in the
+   DOM -- renderer.js relies on tabEl.firstChild being the label span. */
+.tab-favicon {
+  order: -1; flex: none; width: 12px; height: 12px; border-radius: 50%;
+  background-color: var(--dim);
+}
+.tab-favicon.has-favicon {
+  border-radius: 3px; background-size: cover; background-position: center; background-color: transparent;
+}
+
+.tab[draggable="true"] { cursor: grab; }
+.tab.drag-over { outline: 1px dashed var(--violet); outline-offset: -2px; }
+
+/* pinned: compact, favicon/dot only, not draggable-closable via the × */
+.tab.pinned { max-width: 32px; width: 32px; padding: 0 8px; justify-content: center; }
+.tab.pinned span:not(.tab-favicon) { display: none; }
+
 #new-tab-btn {
   flex: none; width: 26px; height: 26px; margin-left: 2px;
   background: transparent; border: 1px solid rgba(234,240,255,0.1);
@@ -319,6 +336,41 @@ button {
 #views { flex: 1; position: relative; background: var(--void); }
 #views webview { position: absolute; inset: 0; width: 100%; height: 100%; display: none; }
 #views webview.active { display: flex; }
+
+/* ---------- find bar ---------- */
+
+.find-bar {
+  position: absolute; top: 10px; right: 16px; z-index: 20;
+  display: flex; align-items: center; gap: 6px;
+  background: var(--slate); border: 1px solid rgba(234,240,255,0.1);
+  border-radius: 8px; padding: 6px 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+.find-bar input {
+  background: var(--horizon); border: 1px solid rgba(234,240,255,0.08); border-radius: 6px;
+  color: var(--starlight); font-size: 12.5px; padding: 5px 8px; outline: none; width: 160px;
+}
+.find-bar input:focus { border-color: var(--violet); }
+.find-count { font-size: 11px; color: var(--dim); min-width: 42px; text-align: center; }
+.find-bar button {
+  flex: none; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;
+  background: transparent; border: 1px solid rgba(234,240,255,0.08); border-radius: 6px;
+  color: var(--dim); cursor: pointer; font-size: 12px;
+}
+.find-bar button:hover { background: rgba(234,240,255,0.08); color: var(--starlight); }
+
+/* ---------- zoom indicator ---------- */
+
+.zoom-indicator {
+  position: absolute; bottom: 16px; right: 16px; z-index: 20;
+  padding: 6px 12px; font-size: 12px; font-family: var(--mono); color: var(--starlight);
+  background: var(--slate); border: 1px solid rgba(234,240,255,0.1); border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  opacity: 1; transition: opacity 300ms var(--ease);
+}
+/* higher-specificity override of the plain .hidden rule, same trick .panel.hidden
+   uses above -- needed so the opacity transition actually plays on hide. */
+.zoom-indicator.hidden { display: block !important; opacity: 0; pointer-events: none; }
 
 /* ---------- narrow window: keep chrome usable ---------- */
 
