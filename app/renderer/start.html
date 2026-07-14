@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>New Tab</title>
+<style>
+  /* Standalone, deliberately not linking style.css -- this page is loaded
+     inside a <webview> with no network access, so its tokens are copied here
+     rather than shared. Keep in sync with app/renderer/style.css by hand if
+     the Observatory palette changes. */
+  :root {
+    --void: #0B1020; --slate: #151B2E; --starlight: #EAF0FF; --dim: #7A88A8;
+    --teal: #6EE7C7; --alert: #FF6B8A;
+    --sans: system-ui, -apple-system, "Segoe UI", "Inter", Roboto, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Consolas, "Ubuntu Mono", monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 26px; background: var(--void); color: var(--starlight); font-family: var(--sans);
+  }
+  #clock { font-family: var(--mono); font-size: 42px; letter-spacing: 0.02em; }
+  #security-line { font-size: 13px; color: var(--dim); }
+  #security-line.secure { color: var(--teal); }
+  #security-line.offline { color: var(--alert); }
+  #quicklinks { display: flex; flex-wrap: wrap; gap: 10px; max-width: 640px; justify-content: center; }
+  #quicklinks a {
+    color: var(--starlight); text-decoration: none; font-size: 12.5px;
+    padding: 8px 14px; border-radius: 8px; border: 1px solid rgba(234,240,255,0.1);
+    background: var(--slate); transition: background 160ms ease;
+  }
+  #quicklinks a:hover { background: rgba(234,240,255,0.08); }
+  #quicklinks-empty { font-size: 12px; color: var(--dim); }
+</style>
+</head>
+<body>
+  <div id="clock">--:--</div>
+  <div id="security-line">Checking status…</div>
+  <div id="quicklinks"></div>
+  <script>
+    function tick() {
+      document.getElementById("clock").textContent =
+        new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    }
+    tick();
+    setInterval(tick, 1000);
+
+    async function loadStatus() {
+      const line = document.getElementById("security-line");
+      try {
+        const s = await window.celestialStart.getStatus();
+        line.textContent = s.tunnel_healthy ? "Secure -- tunnel healthy" : "Offline -- tunnel down";
+        line.className = s.tunnel_healthy ? "secure" : "offline";
+      } catch {
+        line.textContent = "Status unavailable";
+      }
+    }
+    loadStatus();
+
+    async function loadBookmarks() {
+      const el = document.getElementById("quicklinks");
+      try {
+        const bookmarks = await window.celestialStart.getBookmarks();
+        if (!bookmarks.length) {
+          el.innerHTML = '<span id="quicklinks-empty">No bookmarks yet</span>';
+          return;
+        }
+        for (const b of bookmarks) {
+          const a = document.createElement("a");
+          a.href = b.url;
+          a.textContent = b.title || b.url;
+          el.appendChild(a);
+        }
+      } catch {}
+    }
+    loadBookmarks();
+  </script>
+</body>
+</html>

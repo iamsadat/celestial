@@ -189,11 +189,11 @@ button {
 }
 .status-pill.offline .shield-eclipse { opacity: 1; }
 
-/* ---------- bookmarks: slides down from the star ---------- */
+/* ---------- panels: slide down from the topbar-right buttons ---------- */
 
 .hidden { display: none !important; }
 
-#bookmarks-panel {
+.panel {
   position: absolute; top: calc(var(--topbar-h) + 6px); right: 12px; z-index: 10;
   width: 260px; max-height: 320px; overflow-y: auto;
   background: var(--slate); border: 1px solid rgba(234,240,255,0.1);
@@ -203,12 +203,19 @@ button {
   opacity: 1; transform: translateY(0) scale(1);
   transition: opacity 160ms var(--ease), transform 160ms var(--ease);
 }
-/* ponytail: higher-specificity id+class beats the plain .hidden rule above,
-   so this panel gets a slide/fade instead of a hard display:none toggle. */
-#bookmarks-panel.hidden {
+/* ponytail: higher-specificity class combo beats the plain .hidden rule
+   above, so panels get a slide/fade instead of a hard display:none toggle. */
+.panel.hidden {
   display: block !important; opacity: 0; pointer-events: none;
   transform: translateY(-6px) scale(0.98);
 }
+.panel-wide { width: 320px; max-height: 420px; padding: 10px; }
+
+.panel-section-title {
+  font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--dim); margin: 14px 4px 6px;
+}
+.panel-section-title:first-child { margin-top: 4px; }
 
 #bookmarks-add-row {
   padding: 8px 10px; font-size: 12px; color: var(--teal); cursor: pointer; border-radius: 6px;
@@ -223,6 +230,89 @@ button {
 .bookmark-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bookmark-remove { opacity: 0.6; color: var(--dim); }
 .bookmark-remove:hover { opacity: 1; color: var(--alert); }
+
+/* ---------- settings panel ---------- */
+
+.settings-status {
+  padding: 4px; font-size: 12px; color: var(--dim);
+}
+.settings-status.secure { color: var(--teal); }
+.settings-status.offline { color: var(--alert); }
+
+.settings-toggle {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 4px; font-size: 12px; cursor: pointer;
+}
+.settings-field {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 5px 4px; font-size: 12px; color: var(--dim);
+}
+.settings-input, .settings-field select {
+  flex: 1; min-width: 0; max-width: 180px;
+  background: var(--horizon); border: 1px solid rgba(234,240,255,0.08); border-radius: 6px;
+  color: var(--starlight); font-size: 12px; padding: 5px 8px; outline: none;
+}
+.settings-input:focus, .settings-field select:focus { border-color: var(--violet); }
+.mono { font-family: var(--mono); }
+
+.settings-add-row { display: flex; gap: 6px; padding: 4px; }
+.settings-add-row .settings-input { max-width: none; }
+.settings-add-row button, #settings-save-btn, #history-toolbar button {
+  flex: none; background: rgba(234,240,255,0.06); border: 1px solid rgba(234,240,255,0.1);
+  color: var(--starlight); border-radius: 6px; padding: 5px 10px; font-size: 12px; cursor: pointer;
+}
+.settings-add-row button:hover, #settings-save-btn:hover, #history-toolbar button:hover {
+  background: rgba(234,240,255,0.1);
+}
+#settings-save-btn { margin: 10px 4px 4px; width: calc(100% - 8px); }
+.settings-save-msg { padding: 2px 4px 4px; font-size: 11.5px; color: var(--dim); min-height: 14px; }
+
+.whitelist-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 5px 8px; font-size: 12px; border-radius: 6px;
+}
+.whitelist-row:hover { background: rgba(234,240,255,0.06); }
+.whitelist-host { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.whitelist-remove, .whitelist-empty { color: var(--dim); }
+.whitelist-remove { cursor: pointer; opacity: 0.6; }
+.whitelist-remove:hover { opacity: 1; color: var(--alert); }
+.whitelist-empty, .downloads-empty, .history-empty { padding: 8px 4px; font-size: 12px; color: var(--dim); }
+
+/* ---------- downloads panel ---------- */
+
+.download-row { padding: 8px 6px; border-radius: 6px; cursor: pointer; }
+.download-row:hover { background: rgba(234,240,255,0.06); }
+.download-name {
+  font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 4px;
+}
+.download-bar {
+  height: 3px; border-radius: 2px; background: var(--horizon); overflow: hidden; margin-bottom: 4px;
+}
+.download-bar-fill { height: 100%; width: 0%; background: var(--aurora); transition: width var(--ease); }
+.download-row.download-done .download-bar-fill { background: var(--teal); }
+.download-row.download-failed .download-bar-fill { background: var(--alert); width: 100%; }
+.download-meta { font-size: 11px; color: var(--dim); }
+
+/* ---------- history panel ---------- */
+
+#history-toolbar { display: flex; gap: 6px; padding: 4px 4px 8px; }
+#history-toolbar .settings-input { flex: 1; }
+
+.history-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px; border-radius: 6px; cursor: pointer;
+}
+.history-row:hover { background: rgba(234,240,255,0.06); }
+.history-info { flex: 1; min-width: 0; }
+.history-title {
+  font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.history-url {
+  font-size: 10.5px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.history-time { flex: none; font-size: 10.5px; color: var(--dim); }
+.history-remove { flex: none; color: var(--dim); opacity: 0.6; cursor: pointer; }
+.history-remove:hover { opacity: 1; color: var(--alert); }
 
 /* ---------- webviews ---------- */
 
