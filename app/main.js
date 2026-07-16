@@ -23,6 +23,18 @@ function logCrash(type, detail) {
 process.on("uncaughtException", (err) => logCrash("uncaughtException", { message: err.message, stack: err.stack }));
 process.on("unhandledRejection", (reason) => logCrash("unhandledRejection", { reason: String(reason) }));
 
+// Opt-in Sentry: only touched if the operator sets a DSN, and @sentry/electron
+// is not a dependency of this project -- `npm install @sentry/electron` is the
+// entire upgrade path, no other code changes needed.
+if (process.env.CELESTIAL_SENTRY_DSN) {
+  try {
+    const Sentry = require("@sentry/electron/main");
+    Sentry.init({ dsn: process.env.CELESTIAL_SENTRY_DSN });
+  } catch (err) {
+    console.warn("[main] CELESTIAL_SENTRY_DSN set but @sentry/electron isn't installed:", err.message);
+  }
+}
+
 // Same packaged-vs-dev root split as sidecar.js's REPO_ROOT: core/api_server.py
 // writes this token relative to its own file location, which extraResources
 // places at process.resourcesPath/core in a packaged build.
@@ -262,6 +274,7 @@ function createWindow() {
   });
   win.setMenuBarVisibility(false);
   win.webContents.setWebRTCIPHandlingPolicy("disable_non_proxied_udp");
+  win.webContents.on("render-process-gone", (_event, details) => logCrash("render-process-gone", details));
 
   // Security guard for <webview>: discard any preload a compromised page tries
   // to smuggle in and pin our own fingerprint shim instead; only allow http(s)
