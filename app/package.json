@@ -10,6 +10,9 @@
     "build": "electron-builder --dir",
     "dist": "electron-builder"
   },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
+  },
   "devDependencies": {
     "electron": "^43.1.0",
     "electron-builder": "^26.15.3"

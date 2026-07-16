@@ -62,6 +62,16 @@ celestial/
 └── README.md
 ```
 
+## Release signing
+
+`app/package.json`'s `build.publish.url` ships as a `REPLACE_ME` placeholder --
+set it to a real update server before relying on auto-update. For
+electron-builder code signing, set `CSC_LINK` (path or URL to your
+.p12/.pfx certificate) and `CSC_KEY_PASSWORD` (its passphrase) as environment
+variables before running `npm run dist` in `app/`. Unsigned builds (no
+`CSC_LINK` set) still work fine for local use and testing -- signing is only
+required for distributing installers that don't trip OS/AV warnings.
+
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md)

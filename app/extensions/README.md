@@ -9,6 +9,11 @@ belong in version control.
 
 ## uBlock Origin
 
+Easiest path: Settings panel -> Extensions -> "Install uBlock Origin" button,
+which downloads and loads it immediately, no restart needed.
+
+Or run it standalone:
+
 ```
 node app/extensions/fetch-ublock.js
 ```

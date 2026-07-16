@@ -18,6 +18,9 @@ const tunnelUsername = document.getElementById("tunnel-username");
 const tunnelPassword = document.getElementById("tunnel-password");
 const saveBtn = document.getElementById("settings-save-btn");
 const saveMsg = document.getElementById("settings-save-msg");
+const extensionsList = document.getElementById("extensions-list");
+const installUblockBtn = document.getElementById("install-ublock-btn");
+const extensionsMsg = document.getElementById("extensions-msg");
 
 let currentConfig = null;
 
@@ -91,8 +94,40 @@ function populateForm() {
   renderWhitelist();
 }
 
+async function renderExtensions() {
+  const extensions = await window.celestial.listExtensions();
+  extensionsList.innerHTML = "";
+  if (!extensions.length) {
+    const empty = document.createElement("div");
+    empty.className = "whitelist-empty";
+    empty.textContent = "No extensions loaded";
+    extensionsList.appendChild(empty);
+    return;
+  }
+  for (const ext of extensions) {
+    const row = document.createElement("div");
+    row.className = "whitelist-row";
+    row.textContent = `${ext.name} (${ext.version})`;
+    extensionsList.appendChild(row);
+  }
+}
+
+installUblockBtn.addEventListener("click", async () => {
+  extensionsMsg.textContent = "Downloading uBlock Origin...";
+  installUblockBtn.disabled = true;
+  try {
+    const result = await window.celestial.installUblock();
+    extensionsMsg.textContent = result.ok ? `Installed ${result.name} ${result.version}` : `Error: ${result.error}`;
+    if (result.ok) await renderExtensions();
+  } catch {
+    extensionsMsg.textContent = "Install failed";
+  }
+  installUblockBtn.disabled = false;
+});
+
 async function loadSettings() {
   saveMsg.textContent = "";
+  extensionsMsg.textContent = "";
   try {
     const status = await window.celestial.getStatus();
     statusEl.textContent = status.tunnel_healthy
@@ -105,6 +140,7 @@ async function loadSettings() {
   }
   currentConfig = normalizeConfig(await window.celestial.getConfig());
   populateForm();
+  renderExtensions();
 }
 
 saveBtn.addEventListener("click", async () => {

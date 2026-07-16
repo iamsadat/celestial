@@ -36,3 +36,6 @@ mobile/capacitor/android/
 app/node_modules/
 app/dist/
 app/out/
+
+# Downloaded extension binaries (fetched by app/extensions/fetch-ublock.js)
+app/extensions/ublock-origin/

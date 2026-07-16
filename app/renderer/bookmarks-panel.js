@@ -8,6 +8,8 @@ const bookmarkBtn = document.getElementById("bookmark-btn");
 const panel = document.getElementById("bookmarks-panel");
 const addRow = document.getElementById("bookmarks-add-row");
 const listEl = document.getElementById("bookmarks-list");
+const exportBtn = document.getElementById("bookmarks-export-btn");
+const importBtn = document.getElementById("bookmarks-import-btn");
 
 async function renderBookmarks() {
   const bookmarks = await window.celestial.getBookmarks();
@@ -53,6 +55,17 @@ addRow.addEventListener("click", async () => {
   if (!wv || !wv.src) return;
   await window.celestial.addBookmark({ url: wv.src, title: wv.getTitle() || wv.src });
   renderBookmarks();
+});
+
+exportBtn.addEventListener("click", async (e) => {
+  e.stopPropagation();
+  await window.celestial.exportBookmarks();
+});
+
+importBtn.addEventListener("click", async (e) => {
+  e.stopPropagation();
+  const result = await window.celestial.importBookmarks();
+  if (result.ok) renderBookmarks();
 });
 
 bookmarkBtn.addEventListener("click", () => {

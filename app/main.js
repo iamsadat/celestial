@@ -1,5 +1,5 @@
 "use strict";
-const { app, BrowserWindow, ipcMain, session, shell, Menu, clipboard } = require("electron");
+const { app, BrowserWindow, ipcMain, session, shell, Menu, clipboard, dialog } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const http = require("http");
@@ -7,6 +7,33 @@ const { pathToFileURL } = require("url");
 const sidecar = require("./sidecar");
 const storage = require("./storage");
 const { loadExtensions } = require("./extensions");
+const { fetchUblock } = require("./extensions/fetch-ublock");
+
+// Crash/error logging: append-only JSON-lines file under userData, no
+// external service required. ponytail: this is the whole crash-reporting
+// story today -- upgrade path is `npm install @sentry/electron` and setting
+// CELESTIAL_SENTRY_DSN (see the dynamic require near app.whenReady below),
+// no code changes needed beyond that when the time comes.
+function logCrash(type, detail) {
+  try {
+    const line = JSON.stringify({ ts: new Date().toISOString(), type, detail }) + "\n";
+    fs.appendFileSync(path.join(app.getPath("userData"), "crash.log"), line);
+  } catch {}
+}
+process.on("uncaughtException", (err) => logCrash("uncaughtException", { message: err.message, stack: err.stack }));
+process.on("unhandledRejection", (reason) => logCrash("unhandledRejection", { reason: String(reason) }));
+
+// Opt-in Sentry: only touched if the operator sets a DSN, and @sentry/electron
+// is not a dependency of this project -- `npm install @sentry/electron` is the
+// entire upgrade path, no other code changes needed.
+if (process.env.CELESTIAL_SENTRY_DSN) {
+  try {
+    const Sentry = require("@sentry/electron/main");
+    Sentry.init({ dsn: process.env.CELESTIAL_SENTRY_DSN });
+  } catch (err) {
+    console.warn("[main] CELESTIAL_SENTRY_DSN set but @sentry/electron isn't installed:", err.message);
+  }
+}
 
 // Same packaged-vs-dev root split as sidecar.js's REPO_ROOT: core/api_server.py
 // writes this token relative to its own file location, which extraResources
@@ -37,11 +64,11 @@ function readControlToken() {
 // Tells the proxy sidecar which host the user is navigating to, so its
 // whitelist gate (core/custom_proxy.py's is_request_allowed) allows it.
 // See custom_proxy.py's _handle_control for why this exists and is token-gated.
-function setProxyTopLevel(host) {
+function setProxyTopLevel(host, action = "add") {
   return new Promise((resolve) => {
     const token = readControlToken();
     if (!token) return resolve(false);
-    const url = `http://127.0.0.1:8080/__celestial/set-top-level?host=${encodeURIComponent(host)}&token=${encodeURIComponent(token)}`;
+    const url = `http://127.0.0.1:8080/__celestial/set-top-level?host=${encodeURIComponent(host)}&token=${encodeURIComponent(token)}&action=${encodeURIComponent(action)}`;
     const req = http.get(url, { timeout: 2000 }, (res) => {
       res.resume();
       resolve(res.statusCode === 204);
@@ -49,6 +76,29 @@ function setProxyTopLevel(host) {
     req.on("error", () => resolve(false));
     req.on("timeout", () => { req.destroy(); resolve(false); });
   });
+}
+
+// Netscape Bookmark File format (the de facto export/import standard every
+// browser reads) -- plain regex parsing per bookmark row is enough, no HTML
+// parser dependency needed for this shape.
+function escapeHtml(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function bookmarksToNetscapeHtml(bookmarks) {
+  const items = bookmarks
+    .map((b) => `    <DT><A HREF="${escapeHtml(b.url)}" ADD_DATE="${Math.floor((b.addedAt || Date.now()) / 1000)}">${escapeHtml(b.title)}</A>`)
+    .join("\n");
+  return `<!DOCTYPE NETSCAPE-Bookmark-file-1>\n<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">\n<TITLE>Bookmarks</TITLE>\n<H1>Bookmarks</H1>\n<DL><p>\n${items}\n</DL><p>\n`;
+}
+function parseNetscapeBookmarks(html) {
+  const out = [];
+  const re = /<A[^>]*HREF="([^"]+)"[^>]*>([^<]*)<\/A>/gi;
+  let m;
+  while ((m = re.exec(html))) {
+    const url = m[1].trim();
+    if (/^https?:\/\//i.test(url)) out.push({ url, title: m[2].trim() || url });
+  }
+  return out;
 }
 
 // Hardening flags ported from core/browser_launcher.py's CHROMIUM_PRIVACY_FLAGS.
@@ -247,6 +297,7 @@ function createWindow() {
   });
   win.setMenuBarVisibility(false);
   win.webContents.setWebRTCIPHandlingPolicy("disable_non_proxied_udp");
+  win.webContents.on("render-process-gone", (_event, details) => logCrash("render-process-gone", details));
 
   // Security guard for <webview>: discard any preload a compromised page tries
   // to smuggle in and pin our own fingerprint shim instead; only allow http(s)
@@ -325,7 +376,10 @@ function buildAppMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
-ipcMain.handle("celestial:set-top-level", (_event, host) => setProxyTopLevel(host));
+ipcMain.handle("celestial:set-top-level", (_event, host, action) => {
+  if (typeof host !== "string" || !host) return false;
+  return setProxyTopLevel(host, action === "remove" ? "remove" : "add");
+});
 
 ipcMain.handle("celestial:status", async () => {
   try {
@@ -346,6 +400,40 @@ ipcMain.handle("celestial:bookmarks:add", (_event, b) => {
 ipcMain.handle("celestial:bookmarks:delete", (_event, id) => {
   if (typeof id !== "string") throw new Error("invalid bookmark id");
   return storage.deleteBookmark(id);
+});
+ipcMain.handle("celestial:bookmarks:export", async (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const { canceled, filePath } = await dialog.showSaveDialog(win, {
+    defaultPath: "bookmarks.html",
+    filters: [{ name: "Netscape Bookmark File", extensions: ["html"] }],
+  });
+  if (canceled || !filePath) return { ok: false };
+  fs.writeFileSync(filePath, bookmarksToNetscapeHtml(storage.listBookmarks()));
+  return { ok: true, filePath };
+});
+ipcMain.handle("celestial:bookmarks:import", async (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+    filters: [{ name: "Bookmark HTML", extensions: ["html", "htm"] }],
+    properties: ["openFile"],
+  });
+  if (canceled || !filePaths.length) return { ok: false, count: 0 };
+  const parsed = parseNetscapeBookmarks(fs.readFileSync(filePaths[0], "utf8"));
+  for (const b of parsed) storage.addBookmark(b);
+  return { ok: true, count: parsed.length };
+});
+
+ipcMain.handle("celestial:extensions:list", () =>
+  session.defaultSession.getAllExtensions().map((e) => ({ id: e.id, name: e.name, version: e.version })),
+);
+ipcMain.handle("celestial:extensions:install-ublock", async () => {
+  try {
+    const dir = await fetchUblock();
+    const ext = await session.defaultSession.loadExtension(dir, { allowFileAccess: false });
+    return { ok: true, name: ext.name, version: ext.version };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
 });
 ipcMain.handle("celestial:tabs:get", () => storage.getOpenTabs());
 ipcMain.handle("celestial:tabs:save", (_event, tabs) => {
@@ -444,6 +532,15 @@ app.whenReady().then(async () => {
   installDownloadHandler();
   buildAppMenu();
   createWindow();
+
+  // Only in packaged builds, and only once the publish URL is a real target --
+  // the checked-in REPLACE_ME placeholder (package.json build.publish.url)
+  // means no update server has been configured yet.
+  const publishUrl = require("./package.json").build?.publish?.url || "";
+  if (app.isPackaged && publishUrl && !publishUrl.includes("REPLACE_ME")) {
+    const { autoUpdater } = require("electron-updater");
+    autoUpdater.checkForUpdatesAndNotify().catch((err) => console.error("[main] autoUpdater failed:", err.message));
+  }
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
