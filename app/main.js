@@ -533,6 +533,15 @@ app.whenReady().then(async () => {
   buildAppMenu();
   createWindow();
 
+  // Only in packaged builds, and only once the publish URL is a real target --
+  // the checked-in REPLACE_ME placeholder (package.json build.publish.url)
+  // means no update server has been configured yet.
+  const publishUrl = require("./package.json").build?.publish?.url || "";
+  if (app.isPackaged && publishUrl && !publishUrl.includes("REPLACE_ME")) {
+    const { autoUpdater } = require("electron-updater");
+    autoUpdater.checkForUpdatesAndNotify().catch((err) => console.error("[main] autoUpdater failed:", err.message));
+  }
+
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
