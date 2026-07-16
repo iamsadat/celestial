@@ -78,6 +78,29 @@ function setProxyTopLevel(host, action = "add") {
   });
 }
 
+// Netscape Bookmark File format (the de facto export/import standard every
+// browser reads) -- plain regex parsing per bookmark row is enough, no HTML
+// parser dependency needed for this shape.
+function escapeHtml(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function bookmarksToNetscapeHtml(bookmarks) {
+  const items = bookmarks
+    .map((b) => `    <DT><A HREF="${escapeHtml(b.url)}" ADD_DATE="${Math.floor((b.addedAt || Date.now()) / 1000)}">${escapeHtml(b.title)}</A>`)
+    .join("\n");
+  return `<!DOCTYPE NETSCAPE-Bookmark-file-1>\n<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">\n<TITLE>Bookmarks</TITLE>\n<H1>Bookmarks</H1>\n<DL><p>\n${items}\n</DL><p>\n`;
+}
+function parseNetscapeBookmarks(html) {
+  const out = [];
+  const re = /<A[^>]*HREF="([^"]+)"[^>]*>([^<]*)<\/A>/gi;
+  let m;
+  while ((m = re.exec(html))) {
+    const url = m[1].trim();
+    if (/^https?:\/\//i.test(url)) out.push({ url, title: m[2].trim() || url });
+  }
+  return out;
+}
+
 // Hardening flags ported from core/browser_launcher.py's CHROMIUM_PRIVACY_FLAGS.
 // Skipped on purpose: --no-sandbox (Electron sandboxes per-webContents via
 // webPreferences.sandbox instead), --disable-gpu/--disk-cache-size (perf, Phase C),
@@ -377,6 +400,40 @@ ipcMain.handle("celestial:bookmarks:add", (_event, b) => {
 ipcMain.handle("celestial:bookmarks:delete", (_event, id) => {
   if (typeof id !== "string") throw new Error("invalid bookmark id");
   return storage.deleteBookmark(id);
+});
+ipcMain.handle("celestial:bookmarks:export", async (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const { canceled, filePath } = await dialog.showSaveDialog(win, {
+    defaultPath: "bookmarks.html",
+    filters: [{ name: "Netscape Bookmark File", extensions: ["html"] }],
+  });
+  if (canceled || !filePath) return { ok: false };
+  fs.writeFileSync(filePath, bookmarksToNetscapeHtml(storage.listBookmarks()));
+  return { ok: true, filePath };
+});
+ipcMain.handle("celestial:bookmarks:import", async (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+    filters: [{ name: "Bookmark HTML", extensions: ["html", "htm"] }],
+    properties: ["openFile"],
+  });
+  if (canceled || !filePaths.length) return { ok: false, count: 0 };
+  const parsed = parseNetscapeBookmarks(fs.readFileSync(filePaths[0], "utf8"));
+  for (const b of parsed) storage.addBookmark(b);
+  return { ok: true, count: parsed.length };
+});
+
+ipcMain.handle("celestial:extensions:list", () =>
+  session.defaultSession.getAllExtensions().map((e) => ({ id: e.id, name: e.name, version: e.version })),
+);
+ipcMain.handle("celestial:extensions:install-ublock", async () => {
+  try {
+    const dir = await fetchUblock();
+    const ext = await session.defaultSession.loadExtension(dir, { allowFileAccess: false });
+    return { ok: true, name: ext.name, version: ext.version };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
 });
 ipcMain.handle("celestial:tabs:get", () => storage.getOpenTabs());
 ipcMain.handle("celestial:tabs:save", (_event, tabs) => {

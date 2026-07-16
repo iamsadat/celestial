@@ -17,6 +17,8 @@ contextBridge.exposeInMainWorld("celestial", {
   getBookmarks: () => ipcRenderer.invoke("celestial:bookmarks:list"),
   addBookmark: (bookmark) => ipcRenderer.invoke("celestial:bookmarks:add", bookmark),
   deleteBookmark: (id) => ipcRenderer.invoke("celestial:bookmarks:delete", id),
+  exportBookmarks: () => ipcRenderer.invoke("celestial:bookmarks:export"),
+  importBookmarks: () => ipcRenderer.invoke("celestial:bookmarks:import"),
   getTabs: () => ipcRenderer.invoke("celestial:tabs:get"),
   saveTabs: (tabs) => ipcRenderer.invoke("celestial:tabs:save", tabs),
   getConfig: () => ipcRenderer.invoke("celestial:config:get"),
@@ -32,4 +34,6 @@ contextBridge.exposeInMainWorld("celestial", {
   showTabContextMenu: (payload) => ipcRenderer.send("celestial:tab-context-menu", payload),
   onTabContextAction: (cb) => ipcRenderer.on("celestial:tab-context-menu:action", (_e, data) => cb(data)),
   onOpenLinkInNewTab: (cb) => ipcRenderer.on("celestial:open-link-new-tab", (_e, url) => cb(url)),
+  listExtensions: () => ipcRenderer.invoke("celestial:extensions:list"),
+  installUblock: () => ipcRenderer.invoke("celestial:extensions:install-ublock"),
 });
