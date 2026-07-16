@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 "use strict";
-// One-time helper: downloads uBlock Origin's Chromium release zip and
-// unpacks it here so app/extensions.js picks it up on next launch. Not run
-// automatically — the binary isn't vendored into git. See README.md.
+// Downloads uBlock Origin's Chromium release zip and unpacks it here so
+// app/extensions.js picks it up on next launch. Exported as fetchUblock()
+// so main.js's "Install uBlock Origin" button can call it directly; also
+// runnable standalone (`node fetch-ublock.js`). The binary isn't vendored
+// into git. See README.md.
 
 const https = require("https");
 const fs = require("fs");
@@ -29,7 +31,8 @@ function get(url) {
   });
 }
 
-async function main() {
+// Returns UNPACK_DIR on success (the directory to session.loadExtension()).
+async function fetchUblock() {
   console.log("[fetch-ublock] querying latest release...");
   const meta = JSON.parse((await get(RELEASES_API)).toString("utf8"));
   const asset = meta.assets.find((a) => /chromium\.zip$/i.test(a.name));
@@ -44,12 +47,17 @@ async function main() {
   fs.unlinkSync(ZIP_PATH);
 
   console.log(`[fetch-ublock] unpacked to ${UNPACK_DIR}`);
+  return UNPACK_DIR;
 }
 
-main().catch((err) => {
-  console.error("[fetch-ublock] failed:", err.message);
-  console.error("Manual fallback: download the *.chromium.zip asset from");
-  console.error("https://github.com/gorhill/uBlock/releases/latest and unzip it into");
-  console.error(UNPACK_DIR);
-  process.exit(1);
-});
+module.exports = { fetchUblock, UNPACK_DIR };
+
+if (require.main === module) {
+  fetchUblock().catch((err) => {
+    console.error("[fetch-ublock] failed:", err.message);
+    console.error("Manual fallback: download the *.chromium.zip asset from");
+    console.error("https://github.com/gorhill/uBlock/releases/latest and unzip it into");
+    console.error(UNPACK_DIR);
+    process.exit(1);
+  });
+}

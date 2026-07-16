@@ -1,5 +1,5 @@
 "use strict";
-const { app, BrowserWindow, ipcMain, session, shell, Menu, clipboard } = require("electron");
+const { app, BrowserWindow, ipcMain, session, shell, Menu, clipboard, dialog } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const http = require("http");
@@ -7,6 +7,21 @@ const { pathToFileURL } = require("url");
 const sidecar = require("./sidecar");
 const storage = require("./storage");
 const { loadExtensions } = require("./extensions");
+const { fetchUblock } = require("./extensions/fetch-ublock");
+
+// Crash/error logging: append-only JSON-lines file under userData, no
+// external service required. ponytail: this is the whole crash-reporting
+// story today -- upgrade path is `npm install @sentry/electron` and setting
+// CELESTIAL_SENTRY_DSN (see the dynamic require near app.whenReady below),
+// no code changes needed beyond that when the time comes.
+function logCrash(type, detail) {
+  try {
+    const line = JSON.stringify({ ts: new Date().toISOString(), type, detail }) + "\n";
+    fs.appendFileSync(path.join(app.getPath("userData"), "crash.log"), line);
+  } catch {}
+}
+process.on("uncaughtException", (err) => logCrash("uncaughtException", { message: err.message, stack: err.stack }));
+process.on("unhandledRejection", (reason) => logCrash("unhandledRejection", { reason: String(reason) }));
 
 // Same packaged-vs-dev root split as sidecar.js's REPO_ROOT: core/api_server.py
 // writes this token relative to its own file location, which extraResources
@@ -37,11 +52,11 @@ function readControlToken() {
 // Tells the proxy sidecar which host the user is navigating to, so its
 // whitelist gate (core/custom_proxy.py's is_request_allowed) allows it.
 // See custom_proxy.py's _handle_control for why this exists and is token-gated.
-function setProxyTopLevel(host) {
+function setProxyTopLevel(host, action = "add") {
   return new Promise((resolve) => {
     const token = readControlToken();
     if (!token) return resolve(false);
-    const url = `http://127.0.0.1:8080/__celestial/set-top-level?host=${encodeURIComponent(host)}&token=${encodeURIComponent(token)}`;
+    const url = `http://127.0.0.1:8080/__celestial/set-top-level?host=${encodeURIComponent(host)}&token=${encodeURIComponent(token)}&action=${encodeURIComponent(action)}`;
     const req = http.get(url, { timeout: 2000 }, (res) => {
       res.resume();
       resolve(res.statusCode === 204);
@@ -325,7 +340,10 @@ function buildAppMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
-ipcMain.handle("celestial:set-top-level", (_event, host) => setProxyTopLevel(host));
+ipcMain.handle("celestial:set-top-level", (_event, host, action) => {
+  if (typeof host !== "string" || !host) return false;
+  return setProxyTopLevel(host, action === "remove" ? "remove" : "add");
+});
 
 ipcMain.handle("celestial:status", async () => {
   try {

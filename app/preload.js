@@ -13,7 +13,7 @@ const START_PAGE_URL = pathToFileURL(path.join(__dirname, "renderer", "start.htm
 contextBridge.exposeInMainWorld("celestial", {
   startPageUrl: START_PAGE_URL,
   getStatus: () => ipcRenderer.invoke("celestial:status"),
-  setTopLevel: (host) => ipcRenderer.invoke("celestial:set-top-level", host),
+  setTopLevel: (host, action) => ipcRenderer.invoke("celestial:set-top-level", host, action),
   getBookmarks: () => ipcRenderer.invoke("celestial:bookmarks:list"),
   addBookmark: (bookmark) => ipcRenderer.invoke("celestial:bookmarks:add", bookmark),
   deleteBookmark: (id) => ipcRenderer.invoke("celestial:bookmarks:delete", id),

@@ -10,7 +10,7 @@ const reloadBtn = document.getElementById("reload-btn");
 const statusPill = document.getElementById("status-pill");
 const chromeEl = document.getElementById("chrome");
 
-const tabs = new Map(); // id -> { webview, tabEl, url, lazy, suspended, lastActive }
+const tabs = new Map(); // id -> { webview, tabEl, url, host, lazy, suspended, lastActive }
 let activeId = null;
 let tabCounter = 0;
 
@@ -26,12 +26,19 @@ function normalizeUrl(input) {
   return `https://www.google.com/search?q=${encodeURIComponent(v)}`;
 }
 
-async function goTo(webview, rawUrl) {
+// tabId defaults to the active tab -- every external caller (address bar,
+// bookmarks panel) only ever navigates the currently active webview.
+// materialize() passes its own id explicitly since it can run before the
+// tab it's creating becomes active (see newTab()).
+async function goTo(webview, rawUrl, tabId = activeId) {
   const url = normalizeUrl(rawUrl);
   // Local pages (new-tab start page) never go through the network proxy, so
   // there's no top-level host to register with the whitelist gate.
   if (!url.startsWith("file://")) {
-    await window.celestial.setTopLevel(new URL(url).hostname);
+    const hostname = new URL(url).hostname;
+    await window.celestial.setTopLevel(hostname);
+    const t = tabs.get(tabId);
+    if (t) t.host = hostname;
   }
   if (webview.src) webview.loadURL(url);
   else webview.src = url;
@@ -87,7 +94,7 @@ function materialize(id) {
   t.webview = webview;
   wireWebviewEvents(id, webview);
   window.celestialWireFindEvents?.(webview);
-  goTo(webview, t.url);
+  goTo(webview, t.url, id);
   t.lazy = false;
 }
 
@@ -277,6 +284,12 @@ function closeTab(id) {
   if (t.webview) t.webview.remove();
   t.tabEl.remove();
   tabs.delete(id);
+  // Un-register this tab's top-level host only if no other open tab still
+  // uses it -- the proxy's whitelist gate is keyed by active top-levels,
+  // not by tab, so a shared host must stay registered for the survivor.
+  if (t.host && ![...tabs.values()].some((o) => o.host === t.host)) {
+    window.celestial.setTopLevel(t.host, "remove").catch(() => {});
+  }
   if (activeId === id) {
     const remaining = [...tabs.keys()];
     if (remaining.length) activate(remaining[remaining.length - 1]);
