@@ -3,8 +3,8 @@
 // pushed from main's will-download handler) plus the persisted completed list.
 
 const downloadsBtn = document.getElementById("downloads-btn");
-const panel = document.getElementById("downloads-panel");
-const listEl = document.getElementById("downloads-list");
+const downloadsPanel = document.getElementById("downloads-panel");
+const downloadsListEl = document.getElementById("downloads-list");
 
 const active = new Map(); // id -> { row, fill, meta, filename, path }
 
@@ -49,7 +49,7 @@ function upsertActive(evt) {
   let entry = active.get(evt.id);
   if (!entry) {
     const { row, fill, meta } = renderRow({ filename: evt.filename, path: evt.path });
-    listEl.prepend(row);
+    downloadsListEl.prepend(row);
     entry = { row, fill, meta, filename: evt.filename, path: evt.path };
     active.set(evt.id, entry);
   }
@@ -75,10 +75,10 @@ function upsertActive(evt) {
 window.celestial.onDownloadEvent(upsertActive);
 
 async function refreshDownloadsList() {
-  listEl.innerHTML = "";
+  downloadsListEl.innerHTML = "";
   const activePaths = new Set();
   for (const entry of active.values()) {
-    listEl.appendChild(entry.row);
+    downloadsListEl.appendChild(entry.row);
     if (entry.path) activePaths.add(entry.path);
   }
 
@@ -91,27 +91,27 @@ async function refreshDownloadsList() {
     fill.style.width = "100%";
     meta.textContent = "Done";
     row.classList.add("download-done");
-    listEl.appendChild(row);
+    downloadsListEl.appendChild(row);
   }
 
-  if (!listEl.children.length) {
+  if (!downloadsListEl.children.length) {
     const empty = document.createElement("div");
     empty.className = "downloads-empty";
     empty.textContent = "No downloads yet";
-    listEl.appendChild(empty);
+    downloadsListEl.appendChild(empty);
   }
 }
 
 downloadsBtn.addEventListener("click", () => {
-  const isHidden = panel.classList.contains("hidden");
+  const isHidden = downloadsPanel.classList.contains("hidden");
   if (isHidden) window.celestialClosePanels("downloads-panel");
-  panel.classList.toggle("hidden");
+  downloadsPanel.classList.toggle("hidden");
   if (isHidden) refreshDownloadsList();
 });
 
 document.addEventListener("click", (e) => {
-  if (!panel.classList.contains("hidden") && !panel.contains(e.target) && e.target !== downloadsBtn) {
-    panel.classList.add("hidden");
+  if (!downloadsPanel.classList.contains("hidden") && !downloadsPanel.contains(e.target) && e.target !== downloadsBtn) {
+    downloadsPanel.classList.add("hidden");
   }
 });
 

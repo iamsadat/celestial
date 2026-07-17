@@ -4,7 +4,7 @@
 // which proxy GET/POST /config through main -- this file never sees the API token.
 
 const menuBtn = document.getElementById("menu-btn");
-const panel = document.getElementById("settings-panel");
+const settingsPanel = document.getElementById("settings-panel");
 const statusEl = document.getElementById("settings-status");
 const killSwitchToggle = document.getElementById("killswitch-toggle");
 const strictToggle = document.getElementById("strict-killswitch-toggle");
@@ -165,14 +165,14 @@ saveBtn.addEventListener("click", async () => {
 });
 
 menuBtn.addEventListener("click", () => {
-  const isHidden = panel.classList.contains("hidden");
+  const isHidden = settingsPanel.classList.contains("hidden");
   if (isHidden) window.celestialClosePanels("settings-panel");
-  panel.classList.toggle("hidden");
+  settingsPanel.classList.toggle("hidden");
   if (isHidden) loadSettings();
 });
 
 document.addEventListener("click", (e) => {
-  if (!panel.classList.contains("hidden") && !panel.contains(e.target) && e.target !== menuBtn) {
-    panel.classList.add("hidden");
+  if (!settingsPanel.classList.contains("hidden") && !settingsPanel.contains(e.target) && e.target !== menuBtn) {
+    settingsPanel.classList.add("hidden");
   }
 });
