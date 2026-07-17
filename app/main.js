@@ -293,6 +293,10 @@ function createWindow() {
       sandbox: true,
       nodeIntegration: false,
       webviewTag: true,
+      // Sandboxed preloads get no "path"/__dirname/process.resourcesPath (only a
+      // polyfilled require covering electron/events/timers/url), so this is the only
+      // channel to hand preload.js the same START_PAGE_URL computed above.
+      additionalArguments: [`--celestial-start-page=${START_PAGE_URL}`],
     },
   });
   win.setMenuBarVisibility(false);

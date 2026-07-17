@@ -355,7 +355,12 @@ pollStatus();
     saved = await window.celestial.getTabs();
   } catch {}
   if (Array.isArray(saved) && saved.length) {
-    for (const t of saved) newTab(t.url, { lazy: true, activate: false, pinned: t.pinned });
+    let firstId = null;
+    for (const t of saved) {
+      const id = newTab(t.url, { lazy: true, activate: false, pinned: t.pinned });
+      if (firstId === null) firstId = id;
+    }
+    activate(firstId); // no tab is active by default -- without this, address bar/keyboard have no target
   } else {
     newTab();
   }

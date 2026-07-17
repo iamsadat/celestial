@@ -1,11 +1,12 @@
 "use strict";
 const { contextBridge, ipcRenderer } = require("electron");
-const path = require("path");
-const { pathToFileURL } = require("url");
 
-// Same path main.js computes for its will-attach-webview guard (START_PAGE_URL) --
-// both files live directly under app/, so this resolves to the identical string.
-const START_PAGE_URL = pathToFileURL(path.join(__dirname, "renderer", "start.html")).toString();
+// main.js passes its own START_PAGE_URL through webPreferences.additionalArguments --
+// ponytail: sandboxed preloads have no "path"/__dirname/process.resourcesPath (only a
+// polyfilled require covering electron/events/timers/url), so process.argv is the only
+// channel available to recover it here.
+const ARG_PREFIX = "--celestial-start-page=";
+const START_PAGE_URL = (process.argv.find((a) => a.startsWith(ARG_PREFIX)) || "").slice(ARG_PREFIX.length);
 
 // Minimal bridge: tab navigation is handled by the renderer talking directly
 // to its own <webview> DOM elements (same-process DOM call, no IPC needed).
