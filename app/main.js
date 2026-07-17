@@ -517,6 +517,7 @@ app.whenReady().then(async () => {
     await sidecar.start();
   } catch (err) {
     console.error("[main] sidecar failed to start:", err.message);
+    dialog.showErrorBox("Celestial failed to start", err.message);
     app.quit();
     return;
   }
