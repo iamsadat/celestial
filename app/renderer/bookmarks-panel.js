@@ -5,7 +5,7 @@
 // globals renderer.js exposes -- no direct storage/webview access from here.
 
 const bookmarkBtn = document.getElementById("bookmark-btn");
-const panel = document.getElementById("bookmarks-panel");
+const bookmarksPanel = document.getElementById("bookmarks-panel");
 const addRow = document.getElementById("bookmarks-add-row");
 const listEl = document.getElementById("bookmarks-list");
 const exportBtn = document.getElementById("bookmarks-export-btn");
@@ -32,7 +32,7 @@ async function renderBookmarks() {
     title.addEventListener("click", () => {
       const wv = window.celestialActiveWebview();
       if (wv) window.celestialGoTo(wv, b.url);
-      panel.classList.add("hidden");
+      bookmarksPanel.classList.add("hidden");
     });
 
     const remove = document.createElement("span");
@@ -69,15 +69,15 @@ importBtn.addEventListener("click", async (e) => {
 });
 
 bookmarkBtn.addEventListener("click", () => {
-  const isHidden = panel.classList.contains("hidden");
+  const isHidden = bookmarksPanel.classList.contains("hidden");
   if (isHidden) window.celestialClosePanels("bookmarks-panel");
-  panel.classList.toggle("hidden");
+  bookmarksPanel.classList.toggle("hidden");
   if (isHidden) renderBookmarks();
 });
 
 document.addEventListener("click", (e) => {
-  if (!panel.classList.contains("hidden") && !panel.contains(e.target) && e.target !== bookmarkBtn) {
-    panel.classList.add("hidden");
+  if (!bookmarksPanel.classList.contains("hidden") && !bookmarksPanel.contains(e.target) && e.target !== bookmarkBtn) {
+    bookmarksPanel.classList.add("hidden");
   }
 });
 
@@ -86,5 +86,5 @@ window.celestial.onShortcut(async (action) => {
   const wv = window.celestialActiveWebview();
   if (!wv || !wv.src) return;
   await window.celestial.addBookmark({ url: wv.src, title: wv.getTitle() || wv.src });
-  if (!panel.classList.contains("hidden")) renderBookmarks();
+  if (!bookmarksPanel.classList.contains("hidden")) renderBookmarks();
 });

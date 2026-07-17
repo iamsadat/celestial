@@ -47,6 +47,13 @@ const CONTROL_TOKEN_PATH = app.isPackaged
 // guard below can recognize it by exact string match.
 const START_PAGE_URL = pathToFileURL(path.join(__dirname, "renderer", "start.html")).toString();
 
+// Shared allow-list for URLs accepted from the renderer over IPC (bookmarks,
+// history, saved tabs) -- mirrors the scheme restriction in renderer.js's
+// normalizeUrl so a compromised/buggy renderer can't smuggle file:/javascript: etc.
+function isAllowedNavUrl(u) {
+  return typeof u === "string" && (/^https?:\/\//i.test(u) || u === "about:blank" || u === START_PAGE_URL);
+}
+
 const CONFIG_API_URL = "http://127.0.0.1:8765/config";
 
 // Shared by setProxyTopLevel (proxy control channel, :8080) and the /config
@@ -293,6 +300,10 @@ function createWindow() {
       sandbox: true,
       nodeIntegration: false,
       webviewTag: true,
+      // Sandboxed preloads get no "path"/__dirname/process.resourcesPath (only a
+      // polyfilled require covering electron/events/timers/url), so this is the only
+      // channel to hand preload.js the same START_PAGE_URL computed above.
+      additionalArguments: [`--celestial-start-page=${START_PAGE_URL}`],
     },
   });
   win.setMenuBarVisibility(false);
@@ -395,6 +406,10 @@ ipcMain.handle("celestial:status", async () => {
 ipcMain.handle("celestial:bookmarks:list", () => storage.listBookmarks());
 ipcMain.handle("celestial:bookmarks:add", (_event, b) => {
   if (!b || typeof b.url !== "string" || !b.url) throw new Error("invalid bookmark payload");
+  if (!isAllowedNavUrl(b.url)) {
+    console.warn("[main] rejected bookmark with disallowed url scheme:", b.url);
+    return null;
+  }
   return storage.addBookmark({ url: b.url, title: typeof b.title === "string" ? b.title : undefined });
 });
 ipcMain.handle("celestial:bookmarks:delete", (_event, id) => {
@@ -438,12 +453,21 @@ ipcMain.handle("celestial:extensions:install-ublock", async () => {
 ipcMain.handle("celestial:tabs:get", () => storage.getOpenTabs());
 ipcMain.handle("celestial:tabs:save", (_event, tabs) => {
   if (!Array.isArray(tabs)) throw new Error("invalid tabs payload");
-  return storage.saveOpenTabs(tabs);
+  const filtered = tabs.filter((t) => {
+    const ok = t && isAllowedNavUrl(t.url);
+    if (!ok) console.warn("[main] dropped saved tab with disallowed url scheme:", t && t.url);
+    return ok;
+  });
+  return storage.saveOpenTabs(filtered);
 });
 
 ipcMain.handle("celestial:history:list", () => storage.listHistory());
 ipcMain.handle("celestial:history:add", (_event, h) => {
   if (!h || typeof h.url !== "string" || !h.url) throw new Error("invalid history payload");
+  if (!isAllowedNavUrl(h.url)) {
+    console.warn("[main] rejected history entry with disallowed url scheme:", h.url);
+    return null;
+  }
   return storage.recordHistory({ url: h.url, title: typeof h.title === "string" ? h.title : undefined });
 });
 ipcMain.handle("celestial:history:clear", () => storage.clearHistory());
@@ -513,6 +537,7 @@ app.whenReady().then(async () => {
     await sidecar.start();
   } catch (err) {
     console.error("[main] sidecar failed to start:", err.message);
+    dialog.showErrorBox("Celestial failed to start", err.message);
     app.quit();
     return;
   }

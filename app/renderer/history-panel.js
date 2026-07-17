@@ -3,8 +3,8 @@
 // (small enough at the 5000-entry cap that a server-side search isn't needed).
 
 const historyBtn = document.getElementById("history-btn");
-const panel = document.getElementById("history-panel");
-const listEl = document.getElementById("history-list");
+const historyPanel = document.getElementById("history-panel");
+const historyListEl = document.getElementById("history-list");
 const searchInput = document.getElementById("history-search");
 const clearBtn = document.getElementById("history-clear-btn");
 
@@ -26,12 +26,12 @@ function renderList() {
     ? allEntries.filter((h) => h.url.toLowerCase().includes(q) || (h.title || "").toLowerCase().includes(q))
     : allEntries;
 
-  listEl.innerHTML = "";
+  historyListEl.innerHTML = "";
   if (!filtered.length) {
     const empty = document.createElement("div");
     empty.className = "history-empty";
     empty.textContent = q ? "No matches" : "No history yet";
-    listEl.appendChild(empty);
+    historyListEl.appendChild(empty);
     return;
   }
   for (const h of filtered) {
@@ -52,7 +52,7 @@ function renderList() {
     info.addEventListener("click", () => {
       const wv = window.celestialActiveWebview();
       if (wv) window.celestialGoTo(wv, h.url);
-      panel.classList.add("hidden");
+      historyPanel.classList.add("hidden");
     });
 
     const time = document.createElement("span");
@@ -72,7 +72,7 @@ function renderList() {
     row.appendChild(info);
     row.appendChild(time);
     row.appendChild(remove);
-    listEl.appendChild(row);
+    historyListEl.appendChild(row);
   }
 }
 
@@ -90,15 +90,15 @@ clearBtn.addEventListener("click", async () => {
 });
 
 historyBtn.addEventListener("click", () => {
-  const isHidden = panel.classList.contains("hidden");
+  const isHidden = historyPanel.classList.contains("hidden");
   if (isHidden) window.celestialClosePanels("history-panel");
-  panel.classList.toggle("hidden");
+  historyPanel.classList.toggle("hidden");
   if (isHidden) loadHistory();
 });
 
 document.addEventListener("click", (e) => {
-  if (!panel.classList.contains("hidden") && !panel.contains(e.target) && e.target !== historyBtn) {
-    panel.classList.add("hidden");
+  if (!historyPanel.classList.contains("hidden") && !historyPanel.contains(e.target) && e.target !== historyBtn) {
+    historyPanel.classList.add("hidden");
   }
 });
 
