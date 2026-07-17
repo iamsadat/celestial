@@ -21,7 +21,11 @@ let saveTabsTimer = null;
 function normalizeUrl(input) {
   const v = input.trim();
   if (!v) return "https://example.com";
-  if (/^[a-z]+:\/\//i.test(v)) return v;
+  if (v === "about:blank" || v === window.celestial.startPageUrl) return v;
+  if (/^https?:\/\//i.test(v)) return v;
+  // ponytail: any other scheme (file:, javascript:, chrome:, ...) is disallowed --
+  // fail closed by treating it as search text instead of navigating to it.
+  if (/^[a-z]+:\/\//i.test(v)) return `https://www.google.com/search?q=${encodeURIComponent(v)}`;
   if (/^[\w.-]+\.[a-z]{2,}([/:].*)?$/i.test(v)) return `https://${v}`;
   return `https://www.google.com/search?q=${encodeURIComponent(v)}`;
 }
